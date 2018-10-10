@@ -48,10 +48,24 @@ typedef enum AckResult
 	ACK_SUCCESS,
 } AckResult;
 
+typedef enum SchedulerState
+{
+	SHOULD_START = 0,
+	ALLOCATED,
+	STARTED,
+	DEALLOCATED
+} SchedulerState;
+
 #ifdef TS_DEBUG
 #define BGW_LAUNCHER_RESTART_TIME 0
 #else
 #define BGW_LAUNCHER_RESTART_TIME 60
+#endif
+
+#ifdef TS_DEBUG
+#define BGW_LAUNCHER_POLL_TIME 10L
+#else
+#define BGW_LAUNCHER_POLL_TIME 1000L
 #endif
 
 /*
@@ -76,6 +90,9 @@ typedef struct DbHashEntry
 	Oid			db_oid;			/* key for the hash table, must be first */
 	BackgroundWorkerHandle *db_scheduler_handle;	/* needed to shut down
 													 * properly */
+	SchedulerState state;
+	VirtualTransactionId vxid;
+	int	state_advance_failures;
 } DbHashEntry;
 
 
@@ -90,11 +107,13 @@ bgw_on_postmaster_death(void)
 }
 
 static void
-report_bgw_limit_exceeded(void)
+report_bgw_limit_exceeded(DbHashEntry *entry)
 {
-	ereport(LOG, (errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
-				  errmsg("TimescaleDB background worker limit of %d exceeded", guc_max_background_workers),
-				  errhint("Consider increasing timescaledb.max_background_workers.")));
+	if (entry->state_advance_failures == 0)
+		ereport(LOG, (errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
+					  errmsg("TimescaleDB background worker limit of %d exceeded", guc_max_background_workers),
+					  errhint("Consider increasing timescaledb.max_background_workers.")));
+	entry->state_advance_failures++;
 }
 
 /*
@@ -104,12 +123,13 @@ report_bgw_limit_exceeded(void)
  * and hope that things are better when we restart
  */
 static void
-report_error_on_worker_register_failure(void)
+report_error_on_worker_register_failure(DbHashEntry *entry)
 {
-	ereport(LOG, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-				  errmsg("no available background worker slots"),
-				  errhint("Consider increasing max_worker_processes in tandem with timescaledb.max_background_workers.")));
-
+	if (entry->state_advance_failures == 0)
+		ereport(LOG, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+					  errmsg("no available background worker slots"),
+					  errhint("Consider increasing max_worker_processes in tandem with timescaledb.max_background_workers.")));
+	entry->state_advance_failures++;
 }
 
 /*
@@ -254,13 +274,19 @@ init_database_htab(void)
 
 /* Insert a scheduler entry into the hash table. Correctly set entry values. */
 static DbHashEntry *
-db_hash_entry_create(HTAB *db_htab, Oid db_oid)
+db_hash_entry_create_if_not_exists(HTAB *db_htab, Oid db_oid)
 {
 	DbHashEntry *db_he;
 	bool		found;
 
 	db_he = (DbHashEntry *) hash_search(db_htab, &db_oid, HASH_ENTER, &found);
-	db_he->db_scheduler_handle = NULL;
+	if (!found)
+	{
+		db_he->db_scheduler_handle = NULL;
+		db_he->state = SHOULD_START;
+		SetInvalidVirtualTransactionId(db_he->vxid);
+		db_he->state_advance_failures = 0;
+	}
 
 	return db_he;
 }
@@ -281,12 +307,6 @@ populate_database_htab(HTAB *db_htab)
 	Relation	rel;
 	HeapScanDesc scan;
 	HeapTuple	tup;
-	ListCell   *lc;
-
-	/*
-	 * Used to store OIDs that can be assigned schedulers.
-	 */
-	List	   *db_oids = NIL;
 
 	/*
 	 * by this time we should already be connected to the db, and only have
@@ -312,34 +332,10 @@ populate_database_htab(HTAB *db_htab)
 			continue;			/* don't bother with dbs that don't allow
 								 * connections or are templates */
 
-		db_oids = lappend_oid(db_oids, HeapTupleGetOid(tup));
+		db_hash_entry_create_if_not_exists(db_htab, HeapTupleGetOid(tup));
 	}
 	heap_endscan(scan);
 	heap_close(rel, AccessShareLock);
-
-	/*
-	 * Now reserve slots for all schedulers via the bgw_counter. We want to
-	 * avoid the race condition where we have enough workers allocated to
-	 * start schedulers for all databases, but before we could get all of them
-	 * started, the (say) first scheduler has started too many jobs and then
-	 * we don't have enough schedulers for the dbs. So we need to increment
-	 * our workers all at once so that schedulers don't start workers stealing
-	 * other schedulers' spots.
-	 */
-	if (!bgw_total_workers_increment_by(list_length(db_oids)))
-	{
-		ereport(LOG, (errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
-					  errmsg("total databases = %ld TimescaleDB background worker limit %d, so no schedulers allocated", hash_get_num_entries(db_htab), guc_max_background_workers),
-					  errhint("You may start background workers manually by using the  _timescaledb_internal.start_background_workers() function in each database you would like to have a scheduler worker in.")));
-		return;
-	}
-
-	/*
-	 * All schedulers have been correctly accounted for, so go ahead and
-	 * insert all into the actual hash table.
-	 */
-	foreach(lc, db_oids)
-		(void) db_hash_entry_create(db_htab, lfirst_oid(lc));
 
 	/*
 	 * This commit is at the end of this function instead of after heap_close
@@ -349,42 +345,72 @@ populate_database_htab(HTAB *db_htab)
 	CommitTransactionCommand();
 }
 
-/* Scan our hash table of dbs and register a worker for each */
 static void
-start_db_schedulers(HTAB *db_htab)
+scheduler_modify_state(DbHashEntry *entry, SchedulerState new_state)
+{
+	Assert(entry->state != new_state);
+	entry->state_advance_failures = 0;
+	entry->state = new_state;
+}
+
+/* return whether more work is needed */
+static bool
+scheduler_state_advance(DbHashEntry *entry)
+{
+	elog(WARNING, "advancing %d %d", entry->db_oid, entry->state);
+	switch(entry->state)
+	{
+		case SHOULD_START:
+					/* Reserve a spot for this scheduler with BGW counter */
+			if (!bgw_total_workers_increment())
+			{
+				report_bgw_limit_exceeded(entry);
+				return false;
+			}
+			scheduler_modify_state(entry, ALLOCATED);
+			return true;
+		case ALLOCATED:
+		{
+			pid_t	worker_pid;
+			bool worker_registered = register_entrypoint_for_db(entry->db_oid, entry->vxid, &entry->db_scheduler_handle);
+			if (!worker_registered)
+			{
+				report_error_on_worker_register_failure(entry);
+				return false;
+			}
+			wait_for_background_worker_startup(entry->db_scheduler_handle, &worker_pid);
+			SetInvalidVirtualTransactionId(entry->vxid);
+			scheduler_modify_state(entry, STARTED);
+			return false;
+		}
+		case STARTED:
+		{
+			pid_t worker_pid;
+			if (get_background_worker_pid(entry->db_scheduler_handle, &worker_pid) == BGWH_STOPPED)
+			{
+				bgw_total_workers_decrement();
+				scheduler_modify_state(entry, DEALLOCATED);
+				return false;
+			}
+			return false;
+		}
+		case DEALLOCATED:
+			return false;
+	}
+}
+
+static bool
+all_schecdulers_advance_one(HTAB *db_htab)
 {
 	HASH_SEQ_STATUS hash_seq;
 	DbHashEntry *current_entry;
-	int			nstarted = 0;
-	int			ndatabases = hash_get_num_entries(db_htab);
-
+	bool more_work = false;
 	hash_seq_init(&hash_seq, db_htab);
 	while ((current_entry = hash_seq_search(&hash_seq)) != NULL)
 	{
-		bool		worker_registered = false;
-		pid_t		worker_pid;
-		VirtualTransactionId vxid;
-
-		/* When called at server start, no need to wait on a vxid */
-		SetInvalidVirtualTransactionId(vxid);
-
-		worker_registered = register_entrypoint_for_db(current_entry->db_oid, vxid, &current_entry->db_scheduler_handle);
-		if (!worker_registered)
-		{
-			hash_seq_term(&hash_seq);
-			ereport(LOG, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-						  errmsg("TimescaleDB background worker scheduler for at least one database unable to start"),
-						  errhint("%d schedulers have been started, %d databases remain without scheduler. Increase max_worker_processes and restart the server.", nstarted, (ndatabases - nstarted))));
-
-			/*
-			 * We don't need to decrement as that will be handled by the
-			 * stopped workers check.
-			 */
-			break;
-		}
-		wait_for_background_worker_startup(current_entry->db_scheduler_handle, &worker_pid);
-		nstarted++;
+		more_work |= scheduler_state_advance(current_entry);
 	}
+	return more_work;
 }
 
 /* This is called when we're going to shut down so we don't leave things messy*/
@@ -413,68 +439,35 @@ launcher_pre_shmem_cleanup(int code, Datum arg)
 	bgw_message_queue_shmem_cleanup();
 }
 
-/*Garbage collector cleaning up any stopped schedulers*/
-static void
-stopped_db_schedulers_cleanup(HTAB *db_htab)
+
+
+static bool
+scheduler_start(DbHashEntry *entry, VirtualTransactionId vxid)
 {
-	HASH_SEQ_STATUS hash_seq;
-	DbHashEntry *current_entry;
-	bool		found;
-
-	hash_seq_init(&hash_seq, db_htab);
-	while ((current_entry = hash_seq_search(&hash_seq)) != NULL)
+	switch(entry->state)
 	{
-		pid_t		worker_pid;
-
-		if (get_background_worker_pid(current_entry->db_scheduler_handle, &worker_pid) == BGWH_STOPPED)
-		{
-			hash_search(db_htab, &current_entry->db_oid, HASH_REMOVE, &found);
-			bgw_total_workers_decrement();
-		}
+		case SHOULD_START:
+			entry->vxid = vxid;
+			scheduler_state_advance(entry);
+			scheduler_state_advance(entry);
+			break;
+		case ALLOCATED:
+			entry->vxid = vxid;
+			scheduler_state_advance(entry);
+			break;
+		case STARTED:
+			break;
+		case DEALLOCATED:
+			entry->vxid = vxid;
+			scheduler_modify_state(entry, SHOULD_START);
+			scheduler_state_advance(entry);
+			scheduler_state_advance(entry);
+			break;
 	}
+	return entry->state == STARTED;
 }
 
-/* Returns the hashtable entry for a database's scheduler, allocating one if it does not exist. */
-static DbHashEntry *
-allocate_scheduler(HTAB *db_htab, Oid db_oid)
-{
-	bool		found;
-	DbHashEntry *db_he;
 
-	db_he = hash_search(db_htab, &db_oid, HASH_FIND, &found);
-	if (!found)
-	{
-		/* Reserve a spot for this scheduler with BGW counter */
-		if (!bgw_total_workers_increment())
-		{
-			report_bgw_limit_exceeded();
-			return NULL;
-		}
-
-		/*
-		 * Only insert into the hash table if we successfully get a counter
-		 * spot
-		 */
-		db_he = db_hash_entry_create(db_htab, db_oid);
-	}
-
-	return db_he;
-}
-
-static AckResult
-register_scheduler_handle(VirtualTransactionId vxid, DbHashEntry *db_he)
-{
-	pid_t		worker_pid;
-	bool		worker_registered = register_entrypoint_for_db(db_he->db_oid, vxid, &db_he->db_scheduler_handle);
-
-	if (!worker_registered)
-	{
-		report_error_on_worker_register_failure();
-		return ACK_FAILURE;
-	}
-	wait_for_background_worker_startup(db_he->db_scheduler_handle, &worker_pid);
-	return ACK_SUCCESS;
-}
 
 /*
  *************
@@ -492,32 +485,40 @@ register_scheduler_handle(VirtualTransactionId vxid, DbHashEntry *db_he)
 static AckResult
 message_start_action(HTAB *db_htab, BgwMessage *message, VirtualTransactionId vxid)
 {
-	DbHashEntry *db_he;
-	pid_t		worker_pid;
+	DbHashEntry *entry;
 
-	db_he = allocate_scheduler(db_htab, message->db_oid);
-	if (db_he == NULL)
-		return ACK_FAILURE;
+	entry = db_hash_entry_create_if_not_exists(db_htab, message->db_oid);
 
-	if (get_background_worker_pid(db_he->db_scheduler_handle, &worker_pid) == BGWH_STOPPED)
-		return register_scheduler_handle(vxid, db_he);
+	scheduler_start(entry, vxid);
 
-	return ACK_SUCCESS;
+	return (entry->state==STARTED ? ACK_SUCCESS : ACK_FAILURE);
 }
 
 static AckResult
 message_stop_action(HTAB *db_htab, BgwMessage *message)
 {
-	DbHashEntry *db_he;
-	bool		found;
+	DbHashEntry *entry;
+	entry = db_hash_entry_create_if_not_exists(db_htab, message->db_oid);
 
-	db_he = hash_search(db_htab, &message->db_oid, HASH_FIND, &found);
-	if (found)
+	switch(entry->state)
 	{
-		terminate_background_worker(db_he->db_scheduler_handle);
-		wait_for_background_worker_shutdown(db_he->db_scheduler_handle);
+			case SHOULD_START:
+				scheduler_modify_state(entry, DEALLOCATED);
+				return ACK_SUCCESS;
+			case ALLOCATED:
+				/* refactor ? */
+				bgw_total_workers_decrement();
+				scheduler_modify_state(entry, DEALLOCATED);
+				return ACK_SUCCESS;
+			case STARTED:
+				terminate_background_worker(entry->db_scheduler_handle);
+				wait_for_background_worker_shutdown(entry->db_scheduler_handle);
+				scheduler_state_advance(entry);
+				Assert(entry->state == DEALLOCATED);
+				return ACK_SUCCESS;
+			case DEALLOCATED:
+				return ACK_SUCCESS;
 	}
-	return ACK_SUCCESS;
 }
 
 /*
@@ -532,23 +533,27 @@ static AckResult
 message_restart_action(HTAB *db_htab, BgwMessage *message, VirtualTransactionId vxid)
 {
 	DbHashEntry *db_he;
-	bool		found;
+	db_he = db_hash_entry_create_if_not_exists(db_htab, message->db_oid);
 
-	db_he = hash_search(db_htab, &message->db_oid, HASH_FIND, &found);
-	if (!found)
+	switch(db_he->state)
 	{
-		ereport(WARNING, (errmsg("TimescaleDB background worker launcher instructed to restart a nonexistent scheduler BGW")));
-		return ACK_FAILURE;
+			case SHOULD_START:
+				break;
+			case ALLOCATED:
+				break;
+			case STARTED:
+				terminate_background_worker(db_he->db_scheduler_handle);
+				wait_for_background_worker_shutdown(db_he->db_scheduler_handle);
+				scheduler_modify_state(db_he, ALLOCATED);
+				break;
+			case DEALLOCATED:
+				ereport(WARNING, (errmsg("TimescaleDB background worker launcher instructed to restart a nonexistent scheduler BGW")));
+				return ACK_FAILURE;
 	}
 
-	/*
-	 * Stop the scheduler no matter what, so we can restart. Both helper
-	 * functions correctly handle null scheduler_handles
-	 */
-	terminate_background_worker(db_he->db_scheduler_handle);
-	wait_for_background_worker_shutdown(db_he->db_scheduler_handle);
+	scheduler_start(db_he, vxid);
 
-	return register_scheduler_handle(vxid, db_he);
+	return db_he->state == STARTED ? ACK_SUCCESS : ACK_FAILURE;
 }
 
 /*
@@ -573,6 +578,8 @@ launcher_handle_message(HTAB *db_htab)
 	}
 
 	GET_VXID_FROM_PGPROC(vxid, *sender);
+
+	elog(WARNING, "got message %d %d",message->db_oid, message->message_type);
 
 	switch (message->message_type)
 	{
@@ -641,7 +648,9 @@ ts_bgw_cluster_launcher_main(PG_FUNCTION_ARGS)
 		 * have to exit(0) because if we exit in error we get restarted by the
 		 * postmaster.
 		 */
-		report_bgw_limit_exceeded();
+		 ereport(LOG, (errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
+			errmsg("TimescaleDB background worker is set to 0"),
+			errhint("TimescaleDB background worker launcher shutting down.")));
 		proc_exit(0);
 	}
 	/* Connect to the db, no db name yet, so can only access shared catalogs */
@@ -655,21 +664,22 @@ ts_bgw_cluster_launcher_main(PG_FUNCTION_ARGS)
 
 	before_shmem_exit(launcher_pre_shmem_cleanup, PointerGetDatum(db_htab));
 
-	start_db_schedulers(db_htab);
-
 	while (true)
 	{
 		int			wl_rc;
+		bool 		more_work = false;
 
 		CHECK_FOR_INTERRUPTS();
-		stopped_db_schedulers_cleanup(db_htab);
-		if (launcher_handle_message(db_htab))
+		populate_database_htab(db_htab);
+		more_work |= launcher_handle_message(db_htab);
+		more_work |= all_schecdulers_advance_one(db_htab);
+		if (more_work)
 			continue;
 
 #if PG96
-		wl_rc = WaitLatch(MyLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH, 0);
+		wl_rc = WaitLatch(MyLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT, BGW_LAUNCHER_POLL_TIME);
 #else
-		wl_rc = WaitLatch(MyLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH, 0, PG_WAIT_EXTENSION);
+		wl_rc = WaitLatch(MyLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_TIMEOUT, BGW_LAUNCHER_POLL_TIME, PG_WAIT_EXTENSION);
 #endif
 		ResetLatch(MyLatch);
 		if (wl_rc & WL_POSTMASTER_DEATH)
