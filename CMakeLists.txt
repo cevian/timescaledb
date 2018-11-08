@@ -264,6 +264,10 @@ else ()
   message(STATUS "Install pgindent to be able to format C code: https://github.com/postgres/postgres/tree/master/src/tools/pgindent")
 endif (PGINDENT)
 
+configure_file(.clang-format .clang_format COPYONLY)
+add_custom_target(format
+  COMMAND find ${PROJECT_SOURCE_DIR} -not -path '${PROJECT_BINARY_DIR}/*' -and -not -path '${PROJECT_SOURCE_DIR}/\.*' "\\(" -name '*.c' -or -name '*.h' "\\)" -print | xargs clang-format -style=file -i
+)
 option(USE_OPENSSL "Enable use of OpenSSL if available" ON)
 
 # Check if PostgreSQL has OpenSSL enabled by inspecting pg_config --configure.
