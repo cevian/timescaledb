@@ -266,7 +266,7 @@ endif (PGINDENT)
 
 configure_file(.clang-format .clang_format COPYONLY)
 add_custom_target(format
-  COMMAND find ${PROJECT_SOURCE_DIR} -not -path '${PROJECT_BINARY_DIR}/*' -and -not -path '${PROJECT_SOURCE_DIR}/\.*' "\\(" -name '*.c' -or -name '*.h' "\\)" -print | xargs clang-format -style=file -i
+  COMMAND find ${PROJECT_SOURCE_DIR} -not -path '${PROJECT_BINARY_DIR}/*' -and -not -path '${PROJECT_SOURCE_DIR}/\.*' "\\(" -name '*.c' -or -name '*.h' "\\)" -print | xargs ${PROJECT_SOURCE_DIR}/scripts/clang_format_wrapper.sh -style=file -i
 )
 option(USE_OPENSSL "Enable use of OpenSSL if available" ON)
 
