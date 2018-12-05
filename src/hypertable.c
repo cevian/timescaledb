@@ -232,7 +232,7 @@ hypertable_scan_limit_internal(ScanKeyData *scankey,
 			.waitpolicy = LockWaitBlock,
 			.lockmode = LockTupleExclusive,
 			.enabled = tuplock,
-		}
+		},
 	};
 
 	return ts_scanner_scan(&scanctx);
