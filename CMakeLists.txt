@@ -242,32 +242,23 @@ install(
   FILES ${CMAKE_CURRENT_BINARY_DIR}/${EXT_CONTROL_FILE}
   DESTINATION "${PG_SHAREDIR}/extension")
 
-find_program(PGINDENT pgindent
-  HINTS ${PG_SOURCE_DIR}
-  PATH_SUFFIXES src/tools/pgindent
-  DOC "Format C code according to PostgreSQL standards")
+find_program(CLANG_FORMAT clang-format
+  DOC
+  "The path to clang-format")
 
-# Configuration for running pgindent
-if (PGINDENT)
-  message(STATUS "Using pgindent ${PGINDENT}")
-  file(WRITE ${CMAKE_BINARY_DIR}/pgindent_excludes "^\\..*/\n")
+if (NOT CLANG_FORMAT)
+  message(STATUS "Using docker based clang-format")
+   add_custom_target(format
+    COMMAND docker run -it -v ${PROJECT_SOURCE_DIR}:/timescaledb timescaledev/postgres-dev-clang:clang7-pg11.1 /timescaledb/scripts/clang_format_all.sh
+  )
+else()
+  message(STATUS "Using local clang-format")
+  add_custom_target(format
+    COMMAND ${PROJECT_SOURCE_DIR}/scripts/clang_format_all.sh
+  )
+endif ()
 
-  add_custom_command(OUTPUT typedefs.list
-    DEPENDS ${PROJECT_NAME}
-    COMMAND sh ${PROJECT_BINARY_DIR}/scripts/generate_typedefs.sh > ${PROJECT_BINARY_DIR}/typedefs.list)
-  add_custom_target(pgindent
-    COMMAND ${PGINDENT} -typedefs typedefs.list -excludes=${PROJECT_BINARY_DIR}/pgindent_excludes -code-base=${PROJECT_SOURCE_DIR}/src
-    COMMAND ${PGINDENT} -typedefs typedefs.list -excludes=${PROJECT_BINARY_DIR}/pgindent_excludes -code-base=${PROJECT_SOURCE_DIR}/test/src
-    COMMAND ${PGINDENT} -typedefs typedefs.list -excludes=${PROJECT_BINARY_DIR}/pgindent_excludes -code-base=${PROJECT_SOURCE_DIR}/tsl/src
-    DEPENDS ${PROJECT_BINARY_DIR}/typedefs.list)
-else ()
-  message(STATUS "Install pgindent to be able to format C code: https://github.com/postgres/postgres/tree/master/src/tools/pgindent")
-endif (PGINDENT)
 
-configure_file(.clang-format .clang_format COPYONLY)
-add_custom_target(format
-  COMMAND find ${PROJECT_SOURCE_DIR} -not -path '${PROJECT_BINARY_DIR}/*' -and -not -path '${PROJECT_SOURCE_DIR}/\.*' "\\(" -name '*.c' -or -name '*.h' "\\)" -print | xargs ${PROJECT_SOURCE_DIR}/scripts/clang_format_wrapper.sh -style=file -i
-)
 option(USE_OPENSSL "Enable use of OpenSSL if available" ON)
 
 # Check if PostgreSQL has OpenSSL enabled by inspecting pg_config --configure.
@@ -312,18 +303,6 @@ if(NOT APACHE_ONLY)
   add_subdirectory(tsl)
 endif()
 
-if(NOT APACHE_ONLY)
-  add_custom_target(licensecheck
-    DEPENDS licensecheck-apache licensecheck-timescale)
-else()
-  add_custom_target(licensecheck
-    DEPENDS licensecheck-apache)
-endif()
-
-add_custom_target(licensecheck-apache
-  SRC_DIR=${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_license.sh -c ${CMAKE_CURRENT_SOURCE_DIR}/src -s ${CMAKE_CURRENT_SOURCE_DIR}/sql -c ${CMAKE_CURRENT_SOURCE_DIR}/test -t ${CMAKE_CURRENT_SOURCE_DIR}/test
-  USES_TERMINAL)
-
-add_custom_target(licensecheck-timescale
-  SRC_DIR=${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_license.sh -e ${CMAKE_CURRENT_SOURCE_DIR}/tsl/src -u ${CMAKE_CURRENT_SOURCE_DIR}/tsl/test/sql -e ${CMAKE_CURRENT_SOURCE_DIR}/tsl/test/src
-  USES_TERMINAL)
+add_custom_target(licensecheck
+  COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_license_all.sh
+)
