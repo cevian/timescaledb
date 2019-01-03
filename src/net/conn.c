@@ -9,7 +9,7 @@
 
 #include "conn_internal.h"
 
-static ConnOps *conn_ops[_CONNECTION_MAX] = {NULL};
+static ConnOps *conn_ops[_CONNECTION_MAX] = { NULL };
 
 static const char *conn_names[] = {
 	[CONNECTION_PLAIN] = "PLAIN",
@@ -54,8 +54,7 @@ ts_connection_create(ConnectionType type)
 		if (conn->ops->init(conn) < 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("%s connection could not be initialized",
-							conn_names[type])));
+					 errmsg("%s connection could not be initialized", conn_names[type])));
 
 	return conn;
 }

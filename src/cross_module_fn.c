@@ -67,9 +67,9 @@ error_no_default_fn(void)
 {
 	ereport(ERROR,
 			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("functionality not supported under the current license \"%s\", license", ts_guc_license_key),
+			 errmsg("functionality not supported under the current license \"%s\", license",
+					ts_guc_license_key),
 			 errhint("Buy a Timescale license to enable the functionality")));
-
 }
 
 static bool

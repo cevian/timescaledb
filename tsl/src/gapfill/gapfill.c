@@ -15,5 +15,6 @@ gapfill_marker(PG_FUNCTION_ARGS)
 {
 	ereport(ERROR,
 			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			 errmsg("%s can only be used in an aggregation query with time_bucket_gapfill", get_func_name(fcinfo->flinfo->fn_oid))));
+			 errmsg("%s can only be used in an aggregation query with time_bucket_gapfill",
+					get_func_name(fcinfo->flinfo->fn_oid))));
 }

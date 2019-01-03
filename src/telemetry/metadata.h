@@ -13,4 +13,4 @@ extern Datum ts_metadata_get_uuid(void);
 extern Datum ts_metadata_get_exported_uuid(void);
 extern Datum ts_metadata_get_install_timestamp(void);
 
-#endif							/* TIMESCALEDB_TELEMETRY_METADATA_H */
+#endif /* TIMESCALEDB_TELEMETRY_METADATA_H */

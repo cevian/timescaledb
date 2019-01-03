@@ -30,20 +30,17 @@ ts_telemetry_on()
 	return ts_guc_telemetry_level == on_level;
 }
 
-static const struct config_enum_entry telemetry_level_options[] =
-{
-	{"off", TELEMETRY_OFF, false},
-	{"basic", TELEMETRY_BASIC, false},
-	{NULL, 0, false}
+static const struct config_enum_entry telemetry_level_options[] = {
+	{ "off", TELEMETRY_OFF, false }, { "basic", TELEMETRY_BASIC, false }, { NULL, 0, false }
 };
 
-bool		ts_guc_disable_optimizations = false;
-bool		ts_guc_optimize_non_hypertables = false;
-bool		ts_guc_restoring = false;
-bool		ts_guc_constraint_aware_append = true;
-int			ts_guc_max_open_chunks_per_insert = 10;
-int			ts_guc_max_cached_chunks_per_hypertable = 10;
-int			ts_guc_telemetry_level = TELEMETRY_BASIC;
+bool ts_guc_disable_optimizations = false;
+bool ts_guc_optimize_non_hypertables = false;
+bool ts_guc_restoring = false;
+bool ts_guc_constraint_aware_append = true;
+int ts_guc_max_open_chunks_per_insert = 10;
+int ts_guc_max_cached_chunks_per_hypertable = 10;
+int ts_guc_telemetry_level = TELEMETRY_BASIC;
 
 TSDLLEXPORT char *ts_guc_license_key = TS_DEFAULT_LICENSE;
 
@@ -58,7 +55,8 @@ void
 _guc_init(void)
 {
 	/* Main database to connect to. */
-	DefineCustomBoolVariable("timescaledb.disable_optimizations", "Disable all timescale query optimizations",
+	DefineCustomBoolVariable("timescaledb.disable_optimizations",
+							 "Disable all timescale query optimizations",
 							 NULL,
 							 &ts_guc_disable_optimizations,
 							 false,
@@ -67,8 +65,10 @@ _guc_init(void)
 							 NULL,
 							 NULL,
 							 NULL);
-	DefineCustomBoolVariable("timescaledb.optimize_non_hypertables", "Apply timescale query optimization to plain tables",
-							 "Apply timescale query optimization to plain tables in addition to hypertables",
+	DefineCustomBoolVariable("timescaledb.optimize_non_hypertables",
+							 "Apply timescale query optimization to plain tables",
+							 "Apply timescale query optimization to plain tables in addition to "
+							 "hypertables",
 							 &ts_guc_optimize_non_hypertables,
 							 false,
 							 PGC_USERSET,
@@ -77,7 +77,8 @@ _guc_init(void)
 							 NULL,
 							 NULL);
 
-	DefineCustomBoolVariable("timescaledb.restoring", "Install timescale in restoring mode",
+	DefineCustomBoolVariable("timescaledb.restoring",
+							 "Install timescale in restoring mode",
 							 "Used for running pg_restore",
 							 &ts_guc_restoring,
 							 false,
@@ -87,12 +88,12 @@ _guc_init(void)
 							 NULL,
 							 NULL);
 
-	DefineCustomBoolVariable("timescaledb.constraint_aware_append", "Enable constraint-aware append scans",
+	DefineCustomBoolVariable("timescaledb.constraint_aware_append",
+							 "Enable constraint-aware append scans",
 							 "Enable constraint exclusion at execution time",
 							 &ts_guc_constraint_aware_append,
 							 true,
-							 PGC_USERSET
-							 ,
+							 PGC_USERSET,
 							 0,
 							 NULL,
 							 NULL,
@@ -102,13 +103,13 @@ _guc_init(void)
 							"Maximum open chunks per insert",
 							"Maximum number of open chunk tables per insert",
 							&ts_guc_max_open_chunks_per_insert,
-							work_mem * 1024L / 25000L,	/* Measurements via
-														 * `MemoryContextStats(TopMemoryContext)`
-														 * show chunk insert
-														 * state memory context
-														 * takes up ~25K bytes
-														 * (work_mem is in
-														 * kbytes) */
+							work_mem * 1024L / 25000L, /* Measurements via
+														* `MemoryContextStats(TopMemoryContext)`
+														* show chunk insert
+														* state memory context
+														* takes up ~25K bytes
+														* (work_mem is in
+														* kbytes) */
 							0,
 							65536,
 							PGC_USERSET,
@@ -141,16 +142,16 @@ _guc_init(void)
 							 NULL,
 							 NULL);
 
-	DefineCustomStringVariable( /* name= */ "timescaledb.license_key",
-							    /* short_dec= */ "TimescaleDB license key",
-							    /* long_dec= */ "Determines which features are enabled",
-							    /* valueAddr= */ &ts_guc_license_key,
-							    /* bootValue= */ TS_DEFAULT_LICENSE,
-							    /* context= */ PGC_SUSET,
-							    /* flags= */ GUC_SUPERUSER_ONLY,
-							    /* check_hook= */ ts_license_update_check,
-							    /* assign_hook= */ ts_license_on_assign,
-							    /* show_hook= */ NULL);
+	DefineCustomStringVariable(/* name= */ "timescaledb.license_key",
+							   /* short_dec= */ "TimescaleDB license key",
+							   /* long_dec= */ "Determines which features are enabled",
+							   /* valueAddr= */ &ts_guc_license_key,
+							   /* bootValue= */ TS_DEFAULT_LICENSE,
+							   /* context= */ PGC_SUSET,
+							   /* flags= */ GUC_SUPERUSER_ONLY,
+							   /* check_hook= */ ts_license_update_check,
+							   /* assign_hook= */ ts_license_on_assign,
+							   /* show_hook= */ NULL);
 }
 
 void

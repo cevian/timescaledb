@@ -15,9 +15,9 @@
 
 typedef struct SSLConnection
 {
-	Connection	conn;
-	SSL_CTX    *ssl_ctx;
-	SSL		   *ssl;
+	Connection conn;
+	SSL_CTX *ssl_ctx;
+	SSL *ssl;
 	unsigned long errcode;
 } SSLConnection;
 
@@ -31,8 +31,8 @@ ssl_set_error(SSLConnection *conn, int err)
 static SSL_CTX *
 ssl_ctx_create(void)
 {
-	SSL_CTX    *ctx;
-	int			options;
+	SSL_CTX *ctx;
+	int options;
 
 #if (OPENSSL_VERSION_NUMBER >= 0x1010000fL)
 	/* OpenSSL >= v1.1 */
@@ -64,7 +64,7 @@ ssl_ctx_create(void)
 static int
 ssl_setup(SSLConnection *conn)
 {
-	int			ret;
+	int ret;
 
 	conn->ssl_ctx = ssl_ctx_create();
 
@@ -108,7 +108,7 @@ ssl_setup(SSLConnection *conn)
 static int
 ssl_connect(Connection *conn, const char *host, const char *servname, int port)
 {
-	int			ret;
+	int ret;
 
 	/* First do the base connection setup */
 	ret = ts_plain_connect(conn, host, servname, port);
@@ -124,7 +124,7 @@ ssl_write(Connection *conn, const char *buf, size_t writelen)
 {
 	SSLConnection *sslconn = (SSLConnection *) conn;
 
-	int			ret = SSL_write(sslconn->ssl, buf, writelen);
+	int ret = SSL_write(sslconn->ssl, buf, writelen);
 
 	if (ret < 0)
 		ssl_set_error(sslconn, ret);
@@ -137,7 +137,7 @@ ssl_read(Connection *conn, char *buf, size_t buflen)
 {
 	SSLConnection *sslconn = (SSLConnection *) conn;
 
-	int			ret = SSL_read(sslconn->ssl, buf, buflen);
+	int ret = SSL_read(sslconn->ssl, buf, buflen);
 
 	if (ret < 0)
 		ssl_set_error(sslconn, ret);
@@ -171,7 +171,7 @@ ssl_errmsg(Connection *conn)
 	SSLConnection *sslconn = (SSLConnection *) conn;
 	const char *reason;
 	static char errbuf[32];
-	int			err = conn->err;
+	int err = conn->err;
 	unsigned long ecode = sslconn->errcode;
 
 	/* Clear errors */
@@ -180,7 +180,7 @@ ssl_errmsg(Connection *conn)
 
 	if (NULL != sslconn->ssl)
 	{
-		int			sslerr = SSL_get_error(sslconn->ssl, err);
+		int sslerr = SSL_get_error(sslconn->ssl, err);
 
 		switch (sslerr)
 		{

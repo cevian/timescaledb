@@ -17,4 +17,4 @@
 
 extern Datum gapfill_marker(PG_FUNCTION_ARGS);
 
-#endif							/* TIMESCALEDB_GAPFILL_H */
+#endif /* TIMESCALEDB_GAPFILL_H */

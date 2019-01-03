@@ -35,11 +35,11 @@ typedef struct LicenseInfo
 	 * telemetry. If we start introspecting on one of them we should switch it
 	 * to a more structured type.
 	 */
-	char		id[LICENSE_MAX_ID_LEN];
-	char		kind[LICENSE_MAX_KIND_LEN];
+	char id[LICENSE_MAX_ID_LEN];
+	char kind[LICENSE_MAX_KIND_LEN];
 	TimestampTz start_time;
 	TimestampTz end_time;
-	bool		enterprise_features_enabled;
+	bool enterprise_features_enabled;
 } LicenseInfo;
 
 static bool license_deserialize_enterprise(char *license, LicenseInfo *license_out);
@@ -47,40 +47,36 @@ static bool license_info_init_from_base64(char *license_key, LicenseInfo *out);
 static void license_info_init_from_jsonb(Jsonb *json_license, LicenseInfo *out);
 static bool validate_license_info(const LicenseInfo *license);
 
-static LicenseInfo current_license =
-{
-	.id = {0},
-	.kind = {0},
+static LicenseInfo current_license = {
+	.id = { 0 },
+	.kind = { 0 },
 	.end_time = DT_NOBEGIN,
 	.enterprise_features_enabled = false,
 };
 
 static const LicenseInfo no_license = {
 	.id = "",
-	.kind = {""},
+	.kind = { "" },
 	.start_time = DT_NOBEGIN,
 	.end_time = DT_NOBEGIN,
 	.enterprise_features_enabled = false,
 };
 
-static const LicenseInfo community_license = {
-	.id = "",
-	.kind = {""},
-	.start_time = DT_NOBEGIN,
-	.end_time = DT_NOEND,
-	.enterprise_features_enabled = false
-};
-
+static const LicenseInfo community_license = { .id = "",
+											   .kind = { "" },
+											   .start_time = DT_NOBEGIN,
+											   .end_time = DT_NOEND,
+											   .enterprise_features_enabled = false };
 
 TS_FUNCTION_INFO_V1(tsl_license_update_check);
 
 PGDLLEXPORT Datum
 tsl_license_update_check(PG_FUNCTION_ARGS)
 {
-	bool		license_deserialized;
-	char	   *license_key = NULL;
+	bool license_deserialized;
+	char *license_key = NULL;
 	LicenseInfo **guc_extra = NULL;
-	LicenseInfo license_info = {0};
+	LicenseInfo license_info = { 0 };
 
 	Assert(!PG_ARGISNULL(0));
 	Assert(!PG_ARGISNULL(1));
@@ -114,9 +110,9 @@ tsl_license_update_check(PG_FUNCTION_ARGS)
 static bool
 license_deserialize_enterprise(char *license_key, LicenseInfo *license_out)
 {
-	LicenseInfo license_temp = {0};
+	LicenseInfo license_temp = { 0 };
 	const LicenseInfo *license_info = NULL;
-	size_t		license_key_len = strlen(license_key);
+	size_t license_key_len = strlen(license_key);
 
 	if (license_key_len < 1)
 		return false;
@@ -179,14 +175,13 @@ static char *base64_decode(char *license_key);
 static bool
 license_info_init_from_base64(char *license_key, LicenseInfo *out)
 {
-	char	   *expanded = base64_decode(license_key);
+	char *expanded = base64_decode(license_key);
 
 	PG_TRY();
 	{
-		Datum		json_key = DirectFunctionCall1(jsonb_in, CStringGetDatum(expanded));
+		Datum json_key = DirectFunctionCall1(jsonb_in, CStringGetDatum(expanded));
 
 		license_info_init_from_jsonb((Jsonb *) DatumGetPointer(json_key), out);
-
 	}
 	PG_CATCH();
 	{
@@ -202,10 +197,10 @@ license_info_init_from_base64(char *license_key, LicenseInfo *out)
 static char *
 base64_decode(char *license_key)
 {
-	int			raw_len = strlen(license_key);
-	int			decoded_buffer_len = pg_b64_dec_len(raw_len) + 1;
-	char	   *decoded = palloc(decoded_buffer_len);
-	int			decoded_len = pg_b64_decode(license_key, raw_len, decoded);
+	int raw_len = strlen(license_key);
+	int decoded_buffer_len = pg_b64_dec_len(raw_len) + 1;
+	char *decoded = palloc(decoded_buffer_len);
+	int decoded_len = pg_b64_decode(license_key, raw_len, decoded);
 
 	Assert(decoded_len < decoded_buffer_len);
 	decoded[decoded_len] = '\0';
@@ -254,8 +249,9 @@ json_get_kind(Jsonb *license)
 static TimestampTz
 json_get_start_time(Jsonb *license)
 {
-	bool		found = false;
-	TimestampTz start_time = ts_jsonb_get_time_field(license, cstring_to_text(START_TIME_FIELD), &found);
+	bool found = false;
+	TimestampTz start_time =
+		ts_jsonb_get_time_field(license, cstring_to_text(START_TIME_FIELD), &found);
 
 	if (!found)
 		elog(ERRCODE_FEATURE_NOT_SUPPORTED, FIELD_NOT_FOUND_ERRSTRING, START_TIME_FIELD);
@@ -265,8 +261,9 @@ json_get_start_time(Jsonb *license)
 static TimestampTz
 json_get_end_time(Jsonb *license)
 {
-	bool		found = false;
-	TimestampTz end_time = ts_jsonb_get_time_field(license, cstring_to_text(END_TIME_FIELD), &found);
+	bool found = false;
+	TimestampTz end_time =
+		ts_jsonb_get_time_field(license, cstring_to_text(END_TIME_FIELD), &found);
 
 	if (!found)
 		elog(ERRCODE_FEATURE_NOT_SUPPORTED, FIELD_NOT_FOUND_ERRSTRING, END_TIME_FIELD);
@@ -308,14 +305,20 @@ license_switch_to(const LicenseInfo *license)
 
 	if (license_info_is_expired(license))
 	{
-		ereport(WARNING, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						  errmsg("Timescale License expired"),
-						  errhint("Your license expired on %s. Renew your license to continue using enterprise features.", DatumGetCString(DirectFunctionCall1(timestamptz_out, license->end_time)))));
+		ereport(WARNING,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Timescale License expired"),
+				 errhint("Your license expired on %s. Renew your license to continue using "
+						 "enterprise features.",
+						 DatumGetCString(
+							 DirectFunctionCall1(timestamptz_out, license->end_time)))));
 	}
 	else if (!TIMESTAMP_NOT_FINITE(license->end_time))
 	{
-		ereport(WARNING, (errcode(ERRCODE_WARNING),
-						  errmsg("your Timescale License expires on %s", DatumGetCString(DirectFunctionCall1(timestamptz_out, license->end_time)))));
+		ereport(WARNING,
+				(errcode(ERRCODE_WARNING),
+				 errmsg("your Timescale License expires on %s",
+						DatumGetCString(DirectFunctionCall1(timestamptz_out, license->end_time)))));
 	}
 
 	current_license = *license;

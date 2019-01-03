@@ -19,14 +19,14 @@
 #include "installation_metadata.h"
 #include "scanner.h"
 
-#define TYPE_ERROR(inout, typeid)										\
+#define TYPE_ERROR(inout, typeid)                                                                  \
 	elog(ERROR, "ts::installation_metadata: no %s function for type %u", inout, typeid);
 
 static Datum
 convert_type(PGFunction func, Datum value, Oid from_type)
 {
-	bool		value_is_varlena;
-	Oid			value_out;
+	bool value_is_varlena;
+	Oid value_out;
 
 	getTypeOutputInfo(from_type, &value_out, &value_is_varlena);
 
@@ -36,17 +36,15 @@ convert_type(PGFunction func, Datum value, Oid from_type)
 	return DirectFunctionCall1(func, OidFunctionCall1(value_out, value));
 }
 
-#define convert_type_to_text(value, typeid) \
-	convert_type(textin, (value), (typeid))
+#define convert_type_to_text(value, typeid) convert_type(textin, (value), (typeid))
 
-#define convert_type_to_name(value, typeid) \
-	convert_type(namein, (value), (typeid))
+#define convert_type_to_name(value, typeid) convert_type(namein, (value), (typeid))
 
 static Datum
 convert_text_to_type(Datum value, Oid to_type)
 {
-	Oid			value_in;
-	Oid			value_ioparam;
+	Oid value_in;
+	Oid value_ioparam;
 
 	getTypeInputInfo(to_type, &value_in, &value_ioparam);
 
@@ -68,9 +66,9 @@ typedef struct DatumValue
 	 * actually use the form type in code
 	 */
 	FormData_installation_metadata *form;
-	Datum		value;
-	Oid			typeid;
-	bool		isnull;
+	Datum value;
+	Oid typeid;
+	bool isnull;
 } DatumValue;
 
 static ScanTupleResult
@@ -87,19 +85,16 @@ installation_metadata_tuple_get_value(TupleInfo *ti, void *data)
 }
 
 static Datum
-installation_metadata_get_value_internal(Datum metadata_key,
-										 Oid key_type,
-										 Oid value_type,
-										 bool *isnull,
-										 LOCKMODE lockmode)
+installation_metadata_get_value_internal(Datum metadata_key, Oid key_type, Oid value_type,
+										 bool *isnull, LOCKMODE lockmode)
 {
 	ScanKeyData scankey[1];
-	DatumValue	dv = {
+	DatumValue dv = {
 		.typeid = value_type,
 		.isnull = true,
 	};
-	Catalog    *catalog = ts_catalog_get();
-	ScannerCtx	scanctx = {
+	Catalog *catalog = ts_catalog_get();
+	ScannerCtx scanctx = {
 		.table = catalog_get_table_id(catalog, INSTALLATION_METADATA),
 		.index = catalog_get_index(catalog, INSTALLATION_METADATA, INSTALLATION_METADATA_PKEY_IDX),
 		.nkeys = 1,
@@ -110,8 +105,11 @@ installation_metadata_get_value_internal(Datum metadata_key,
 		.scandirection = ForwardScanDirection,
 	};
 
-	ScanKeyInit(&scankey[0], Anum_installation_metadata_key,
-				BTEqualStrategyNumber, F_NAMEEQ, convert_type_to_name(metadata_key, key_type));
+	ScanKeyInit(&scankey[0],
+				Anum_installation_metadata_key,
+				BTEqualStrategyNumber,
+				F_NAMEEQ,
+				convert_type_to_name(metadata_key, key_type));
 
 	ts_scanner_scan(&scanctx);
 
@@ -122,10 +120,7 @@ installation_metadata_get_value_internal(Datum metadata_key,
 }
 
 Datum
-ts_installation_metadata_get_value(Datum metadata_key,
-								   Oid key_type,
-								   Oid value_type,
-								   bool *isnull)
+ts_installation_metadata_get_value(Datum metadata_key, Oid key_type, Oid value_type, bool *isnull)
 {
 	return installation_metadata_get_value_internal(metadata_key,
 													key_type,
@@ -143,14 +138,15 @@ ts_installation_metadata_get_value(Datum metadata_key,
  *  the existing value if nothing was inserted.
  */
 Datum
-ts_installation_metadata_insert(Datum metadata_key, Oid key_type, Datum metadata_value, Oid value_type)
+ts_installation_metadata_insert(Datum metadata_key, Oid key_type, Datum metadata_value,
+								Oid value_type)
 {
-	Datum		existing_value;
-	Datum		values[Natts_installation_metadata];
-	bool		nulls[Natts_installation_metadata] = {false};
-	bool		isnull = false;
-	Catalog    *catalog = ts_catalog_get();
-	Relation	rel;
+	Datum existing_value;
+	Datum values[Natts_installation_metadata];
+	bool nulls[Natts_installation_metadata] = { false };
+	bool isnull = false;
+	Catalog *catalog = ts_catalog_get();
+	Relation rel;
 
 	rel = heap_open(catalog_get_table_id(catalog, INSTALLATION_METADATA), ShareRowExclusiveLock);
 

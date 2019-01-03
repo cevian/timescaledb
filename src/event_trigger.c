@@ -40,8 +40,8 @@ ts_event_trigger_ddl_commands(void)
 	ReturnSetInfo rsinfo;
 	FunctionCallInfoData fcinfo;
 	TupleTableSlot *slot;
-	EState	   *estate = CreateExecutorState();
-	List	   *objects = NIL;
+	EState *estate = CreateExecutorState();
+	List *objects = NIL;
 
 	InitFunctionCallInfoData(fcinfo, &ddl_commands_fmgrinfo, 1, InvalidOid, NULL, NULL);
 	MemSet(&rsinfo, 0, sizeof(rsinfo));
@@ -56,10 +56,10 @@ ts_event_trigger_ddl_commands(void)
 
 	while (tuplestore_gettupleslot(rsinfo.setResult, true, false, slot))
 	{
-		HeapTuple	tuple = ExecFetchSlotTuple(slot);
+		HeapTuple tuple = ExecFetchSlotTuple(slot);
 		CollectedCommand *cmd;
-		Datum		values[DDL_INFO_NATTS];
-		bool		nulls[DDL_INFO_NATTS];
+		Datum values[DDL_INFO_NATTS];
+		bool nulls[DDL_INFO_NATTS];
 
 		heap_deform_tuple(tuple, rsinfo.setDesc, values, nulls);
 
@@ -83,14 +83,13 @@ ts_event_trigger_ddl_commands(void)
 static List *
 extract_addrnames(ArrayType *arr)
 {
-	Datum	   *elems;
-	bool	   *nulls;
-	int			nelems;
-	List	   *list = NIL;
-	int			i;
+	Datum *elems;
+	bool *nulls;
+	int nelems;
+	List *list = NIL;
+	int i;
 
-	deconstruct_array(arr, TEXTOID, -1, false, 'i',
-					  &elems, &nulls, &nelems);
+	deconstruct_array(arr, TEXTOID, -1, false, 'i', &elems, &nulls, &nelems);
 
 	for (i = 0; i < nelems; i++)
 	{
@@ -109,16 +108,11 @@ make_event_trigger_drop_table_constraint(char *constraint_name, char *schema, ch
 {
 	EventTriggerDropTableConstraint *obj = palloc(sizeof(EventTriggerDropTableConstraint));
 
-	*obj = (EventTriggerDropTableConstraint)
-	{
-		.obj =
-		{
-			.type = EVENT_TRIGGER_DROP_TABLE_CONSTRAINT
-		},
-			.constraint_name = constraint_name,
-			.schema = schema,
-			.table = table
-	};
+	*obj =
+		(EventTriggerDropTableConstraint){ .obj = { .type = EVENT_TRIGGER_DROP_TABLE_CONSTRAINT },
+										   .constraint_name = constraint_name,
+										   .schema = schema,
+										   .table = table };
 
 	return obj;
 }
@@ -128,14 +122,10 @@ make_event_trigger_drop_index(char *index_name, char *schema)
 {
 	EventTriggerDropIndex *obj = palloc(sizeof(EventTriggerDropIndex));
 
-	*obj = (EventTriggerDropIndex)
-	{
-		.obj =
-		{
-			.type = EVENT_TRIGGER_DROP_INDEX
-		},
-			.index_name = index_name,
-			.schema = schema,
+	*obj = (EventTriggerDropIndex){
+		.obj = { .type = EVENT_TRIGGER_DROP_INDEX },
+		.index_name = index_name,
+		.schema = schema,
 	};
 	return obj;
 }
@@ -145,14 +135,10 @@ make_event_trigger_drop_table(char *table_name, char *schema)
 {
 	EventTriggerDropTable *obj = palloc(sizeof(EventTriggerDropTable));
 
-	*obj = (EventTriggerDropTable)
-	{
-		.obj =
-		{
-			.type = EVENT_TRIGGER_DROP_TABLE
-		},
-			.table_name = table_name,
-			.schema = schema,
+	*obj = (EventTriggerDropTable){
+		.obj = { .type = EVENT_TRIGGER_DROP_TABLE },
+		.table_name = table_name,
+		.schema = schema,
 	};
 	return obj;
 }
@@ -162,13 +148,9 @@ make_event_trigger_drop_schema(char *schema)
 {
 	EventTriggerDropSchema *obj = palloc(sizeof(EventTriggerDropSchema));
 
-	*obj = (EventTriggerDropSchema)
-	{
-		.obj =
-		{
-			.type = EVENT_TRIGGER_DROP_SCHEMA
-		},
-			.schema = schema,
+	*obj = (EventTriggerDropSchema){
+		.obj = { .type = EVENT_TRIGGER_DROP_SCHEMA },
+		.schema = schema,
 	};
 	return obj;
 }
@@ -178,20 +160,13 @@ make_event_trigger_drop_trigger(char *trigger_name, char *schema, char *table)
 {
 	EventTriggerDropTrigger *obj = palloc(sizeof(EventTriggerDropTrigger));
 
-	*obj = (EventTriggerDropTrigger)
-	{
-		.obj =
-		{
-			.type = EVENT_TRIGGER_DROP_TRIGGER
-		},
-			.trigger_name = trigger_name,
-			.schema = schema,
-			.table = table
-	};
+	*obj = (EventTriggerDropTrigger){ .obj = { .type = EVENT_TRIGGER_DROP_TRIGGER },
+									  .trigger_name = trigger_name,
+									  .schema = schema,
+									  .table = table };
 
 	return obj;
 }
-
 
 List *
 ts_event_trigger_dropped_objects(void)
@@ -199,8 +174,8 @@ ts_event_trigger_dropped_objects(void)
 	ReturnSetInfo rsinfo;
 	FunctionCallInfoData fcinfo;
 	TupleTableSlot *slot;
-	EState	   *estate = CreateExecutorState();
-	List	   *objects = NIL;
+	EState *estate = CreateExecutorState();
+	List *objects = NIL;
 
 	InitFunctionCallInfoData(fcinfo, &dropped_objects_fmgrinfo, 0, InvalidOid, NULL, NULL);
 	MemSet(&rsinfo, 0, sizeof(rsinfo));
@@ -215,11 +190,11 @@ ts_event_trigger_dropped_objects(void)
 
 	while (tuplestore_gettupleslot(rsinfo.setResult, true, false, slot))
 	{
-		HeapTuple	tuple = ExecFetchSlotTuple(slot);
-		Datum		values[DROPPED_OBJECTS_NATTS];
-		bool		nulls[DROPPED_OBJECTS_NATTS];
-		Oid			class_id;
-		char	   *objtype;
+		HeapTuple tuple = ExecFetchSlotTuple(slot);
+		Datum values[DROPPED_OBJECTS_NATTS];
+		bool nulls[DROPPED_OBJECTS_NATTS];
+		Oid class_id;
+		char *objtype;
 
 		heap_deform_tuple(tuple, rsinfo.setDesc, values, nulls);
 
@@ -231,7 +206,7 @@ ts_event_trigger_dropped_objects(void)
 				objtype = TextDatumGetCString(values[6]);
 				if (objtype != NULL && strcmp(objtype, "table constraint") == 0)
 				{
-					List	   *addrnames = extract_addrnames(DatumGetArrayTypeP(values[10]));
+					List *addrnames = extract_addrnames(DatumGetArrayTypeP(values[10]));
 
 					objects = lappend(objects,
 									  make_event_trigger_drop_table_constraint(lthird(addrnames),
@@ -245,7 +220,7 @@ ts_event_trigger_dropped_objects(void)
 					break;
 				if (strcmp(objtype, "index") == 0)
 				{
-					List	   *addrnames = extract_addrnames(DatumGetArrayTypeP(values[10]));
+					List *addrnames = extract_addrnames(DatumGetArrayTypeP(values[10]));
 
 					objects = lappend(objects,
 									  make_event_trigger_drop_index(lsecond(addrnames),
@@ -253,7 +228,7 @@ ts_event_trigger_dropped_objects(void)
 				}
 				else if (strcmp(objtype, "table") == 0)
 				{
-					List	   *addrnames = extract_addrnames(DatumGetArrayTypeP(values[10]));
+					List *addrnames = extract_addrnames(DatumGetArrayTypeP(values[10]));
 
 					objects = lappend(objects,
 									  make_event_trigger_drop_table(lsecond(addrnames),
@@ -261,23 +236,22 @@ ts_event_trigger_dropped_objects(void)
 				}
 				break;
 			case NamespaceRelationId:
-				{
-					List	   *addrnames = extract_addrnames(DatumGetArrayTypeP(values[10]));
+			{
+				List *addrnames = extract_addrnames(DatumGetArrayTypeP(values[10]));
 
-					objects = lappend(objects,
-									  make_event_trigger_drop_schema(linitial(addrnames)));
-				}
-				break;
+				objects = lappend(objects, make_event_trigger_drop_schema(linitial(addrnames)));
+			}
+			break;
 			case TriggerRelationId:
-				{
-					List	   *addrnames = extract_addrnames(DatumGetArrayTypeP(values[10]));
+			{
+				List *addrnames = extract_addrnames(DatumGetArrayTypeP(values[10]));
 
-					objects = lappend(objects,
-									  make_event_trigger_drop_trigger(lthird(addrnames),
-																	  linitial(addrnames),
-																	  lsecond(addrnames)));
-				}
-				break;
+				objects = lappend(objects,
+								  make_event_trigger_drop_trigger(lthird(addrnames),
+																  linitial(addrnames),
+																  lsecond(addrnames)));
+			}
+			break;
 
 			default:
 				break;
@@ -294,8 +268,7 @@ ts_event_trigger_dropped_objects(void)
 void
 _event_trigger_init(void)
 {
-	fmgr_info(fmgr_internal_function("pg_event_trigger_ddl_commands"),
-			  &ddl_commands_fmgrinfo);
+	fmgr_info(fmgr_internal_function("pg_event_trigger_ddl_commands"), &ddl_commands_fmgrinfo);
 	fmgr_info(fmgr_internal_function("pg_event_trigger_dropped_objects"),
 			  &dropped_objects_fmgrinfo);
 }

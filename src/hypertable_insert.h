@@ -15,7 +15,7 @@
 
 typedef struct HypertableInsertPath
 {
-	CustomPath	cpath;
+	CustomPath cpath;
 } HypertableInsertPath;
 
 typedef struct HypertableInsertState
@@ -27,4 +27,4 @@ typedef struct HypertableInsertState
 extern Plan *ts_hypertable_insert_fixup_tlist(Plan *plan);
 extern Path *ts_hypertable_insert_path_create(PlannerInfo *root, ModifyTablePath *mtpath);
 
-#endif							/* TIMESCALEDB_HYPERTABLE_INSERT_H */
+#endif /* TIMESCALEDB_HYPERTABLE_INSERT_H */

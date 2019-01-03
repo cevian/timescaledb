@@ -16,4 +16,4 @@ extern void ts_timer_mock_register_bgw_handle(BackgroundWorkerHandle *handle);
 
 const Timer ts_mock_timer;
 
-#endif							/* tTIME_MOCK_H */
+#endif /* tTIME_MOCK_H */

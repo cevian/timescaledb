@@ -31,8 +31,8 @@
 #include "license.h"
 #include "reorder.h"
 
-#define ALTER_JOB_SCHEDULE_NUM_COLS	5
-#define REORDER_SKIP_RECENT_DIM_SLICES_N	3
+#define ALTER_JOB_SCHEDULE_NUM_COLS 5
+#define REORDER_SKIP_RECENT_DIM_SLICES_N 3
 
 /*
  * Returns the ID of a chunk to reorder. Eligible chunks must be at least the
@@ -45,8 +45,10 @@
 static int
 get_chunk_id_to_reorder(int32 job_id, Hypertable *ht)
 {
-	Dimension  *time_dimension = hyperspace_get_open_dimension(ht->space, 0);
-	DimensionSlice *nth_dimension = ts_dimension_slice_nth_latest_slice(time_dimension->fd.id, REORDER_SKIP_RECENT_DIM_SLICES_N);
+	Dimension *time_dimension = hyperspace_get_open_dimension(ht->space, 0);
+	DimensionSlice *nth_dimension =
+		ts_dimension_slice_nth_latest_slice(time_dimension->fd.id,
+											REORDER_SKIP_RECENT_DIM_SLICES_N);
 
 	if (!nth_dimension)
 		return -1;
@@ -64,8 +66,8 @@ get_chunk_id_to_reorder(int32 job_id, Hypertable *ht)
 bool
 execute_reorder_policy(int32 job_id, reorder_func reorder)
 {
-	int			chunk_id;
-	bool		started = false;
+	int chunk_id;
+	bool started = false;
 	BgwPolicyReorder *args;
 	Hypertable *ht;
 
@@ -100,10 +102,16 @@ execute_reorder_policy(int32 job_id, reorder_func reorder)
 	 * function should translate this to the Oid of the index on the specific
 	 * chunk.
 	 */
-	reorder(ts_chunk_get_by_id(chunk_id, 0, false)->table_id, get_relname_relid(NameStr(args->fd.hypertable_index_name), get_namespace_oid(NameStr(ht->fd.schema_name), false)), false, InvalidOid);
+	reorder(ts_chunk_get_by_id(chunk_id, 0, false)->table_id,
+			get_relname_relid(NameStr(args->fd.hypertable_index_name),
+							  get_namespace_oid(NameStr(ht->fd.schema_name), false)),
+			false,
+			InvalidOid);
 
 	/* Now update chunk_stats table */
-	ts_bgw_policy_chunk_stats_record_job_run(args->fd.job_id, chunk_id, ts_timer_get_current_timestamp());
+	ts_bgw_policy_chunk_stats_record_job_run(args->fd.job_id,
+											 chunk_id,
+											 ts_timer_get_current_timestamp());
 
 commit:
 	if (started)
@@ -115,7 +123,7 @@ commit:
 bool
 execute_drop_chunks_policy(int32 job_id)
 {
-	bool		started = false;
+	bool started = false;
 	BgwPolicyDropChunks *args;
 
 	if (!IsTransactionOrTransactionBlock())
@@ -133,13 +141,17 @@ execute_drop_chunks_policy(int32 job_id)
 				 errmsg("could not run drop_chunks policy #%d because no args in policy table",
 						job_id)));
 
-	ts_chunk_do_drop_chunks(ts_hypertable_id_to_relid(args->fd.hypertable_id), IntervalPGetDatum(&args->fd.older_than), 0, INTERVALOID, InvalidOid, args->fd.cascade);
+	ts_chunk_do_drop_chunks(ts_hypertable_id_to_relid(args->fd.hypertable_id),
+							IntervalPGetDatum(&args->fd.older_than),
+							0,
+							INTERVALOID,
+							InvalidOid,
+							args->fd.cascade);
 
 	if (started)
 		CommitTransactionCommand();
 	return true;
 }
-
 
 bool
 tsl_bgw_policy_job_execute(BgwJob *job)
@@ -153,21 +165,23 @@ tsl_bgw_policy_job_execute(BgwJob *job)
 		case JOB_TYPE_DROP_CHUNKS:
 			return execute_drop_chunks_policy(job->fd.id);
 		default:
-			elog(ERROR, "scheduler tried to run an invalid enterprise job type: \"%s\"", NameStr(job->fd.job_type));
+			elog(ERROR,
+				 "scheduler tried to run an invalid enterprise job type: \"%s\"",
+				 NameStr(job->fd.job_type));
 	}
 }
 
 Datum
 bgw_policy_alter_policy_schedule(PG_FUNCTION_ARGS)
 {
-	BgwJob	   *job;
-	TupleDesc	tupdesc;
-	Datum		values[ALTER_JOB_SCHEDULE_NUM_COLS];
-	bool		nulls[ALTER_JOB_SCHEDULE_NUM_COLS] = {false};
-	HeapTuple	tuple;
+	BgwJob *job;
+	TupleDesc tupdesc;
+	Datum values[ALTER_JOB_SCHEDULE_NUM_COLS];
+	bool nulls[ALTER_JOB_SCHEDULE_NUM_COLS] = { false };
+	HeapTuple tuple;
 
-	int			job_id = PG_GETARG_INT32(0);
-	bool		if_exists = PG_GETARG_BOOL(5);
+	int job_id = PG_GETARG_INT32(0);
+	bool if_exists = PG_GETARG_BOOL(5);
 
 	license_enforce_enterprise_enabled();
 
@@ -178,7 +192,9 @@ bgw_policy_alter_policy_schedule(PG_FUNCTION_ARGS)
 	{
 		if (if_exists)
 		{
-			ereport(NOTICE, (errmsg("cannot alter policy schedule, policy #%d not found, skipping", job_id)));
+			ereport(NOTICE,
+					(errmsg("cannot alter policy schedule, policy #%d not found, skipping",
+							job_id)));
 			PG_RETURN_NULL();
 		}
 		else

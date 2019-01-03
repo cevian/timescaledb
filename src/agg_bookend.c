@@ -34,24 +34,23 @@ TS_FUNCTION_INFO_V1(ts_bookend_deserializefunc);
 /* A  PolyDatum represents a polymorphic datum */
 typedef struct PolyDatum
 {
-	Oid			type_oid;
-	bool		is_null;
-	Datum		datum;
+	Oid type_oid;
+	bool is_null;
+	Datum datum;
 } PolyDatum;
-
 
 /* PolyDatumIOState is internal state used by  polydatum_serialize and	polydatum_deserialize  */
 typedef struct PolyDatumIOState
 {
-	Oid			type_oid;
-	FmgrInfo	proc;
-	Oid			typeioparam;
+	Oid type_oid;
+	FmgrInfo proc;
+	Oid typeioparam;
 } PolyDatumIOState;
 
 static PolyDatum
 polydatum_from_arg(int argno, FunctionCallInfo fcinfo)
 {
-	PolyDatum	value;
+	PolyDatum value;
 
 	value.type_oid = get_fn_expr_argtype(fcinfo->flinfo, argno);
 	value.is_null = PG_ARGISNULL(argno);
@@ -66,7 +65,7 @@ polydatum_from_arg(int argno, FunctionCallInfo fcinfo)
 static void
 polydatum_serialize(PolyDatum *pd, StringInfo buf, PolyDatumIOState *state, FunctionCallInfo fcinfo)
 {
-	bytea	   *outputbytes;
+	bytea *outputbytes;
 
 	pq_sendint(buf, pd->type_oid, sizeof(Oid));
 
@@ -79,14 +78,11 @@ polydatum_serialize(PolyDatum *pd, StringInfo buf, PolyDatumIOState *state, Func
 
 	if (state->type_oid != pd->type_oid)
 	{
-		Oid			func;
-		bool		is_varlena;
+		Oid func;
+		bool is_varlena;
 
-		getTypeBinaryOutputInfo(pd->type_oid,
-								&func,
-								&is_varlena);
-		fmgr_info_cxt(func, &state->proc,
-					  fcinfo->flinfo->fn_mcxt);
+		getTypeBinaryOutputInfo(pd->type_oid, &func, &is_varlena);
+		fmgr_info_cxt(func, &state->proc, fcinfo->flinfo->fn_mcxt);
 		state->type_oid = pd->type_oid;
 	}
 	outputbytes = SendFunctionCall(&state->proc, pd->datum);
@@ -100,12 +96,13 @@ polydatum_serialize(PolyDatum *pd, StringInfo buf, PolyDatumIOState *state, Func
  *
  */
 static PolyDatum *
-polydatum_deserialize(PolyDatum *result, StringInfo buf, PolyDatumIOState *state, FunctionCallInfo fcinfo)
+polydatum_deserialize(PolyDatum *result, StringInfo buf, PolyDatumIOState *state,
+					  FunctionCallInfo fcinfo)
 {
-	int			itemlen;
+	int itemlen;
 	StringInfoData item_buf;
-	StringInfo	bufptr;
-	char		csave;
+	StringInfo bufptr;
+	char csave;
 
 	if (NULL == result)
 	{
@@ -155,20 +152,14 @@ polydatum_deserialize(PolyDatum *result, StringInfo buf, PolyDatumIOState *state
 	/* Now call the column's receiveproc */
 	if (state->type_oid != result->type_oid)
 	{
-		Oid			func;
+		Oid func;
 
-		getTypeBinaryInputInfo(result->type_oid,
-							   &func,
-							   &state->typeioparam);
-		fmgr_info_cxt(func, &state->proc,
-					  fcinfo->flinfo->fn_mcxt);
+		getTypeBinaryInputInfo(result->type_oid, &func, &state->typeioparam);
+		fmgr_info_cxt(func, &state->proc, fcinfo->flinfo->fn_mcxt);
 		state->type_oid = result->type_oid;
 	}
 
-	result->datum = ReceiveFunctionCall(&state->proc,
-										bufptr,
-										state->typeioparam,
-										-1);
+	result->datum = ReceiveFunctionCall(&state->proc, bufptr, state->typeioparam, -1);
 
 	if (bufptr)
 	{
@@ -186,22 +177,22 @@ polydatum_deserialize(PolyDatum *result, StringInfo buf, PolyDatumIOState *state
 /* Internal state for bookend aggregates */
 typedef struct InternalCmpAggStore
 {
-	PolyDatum	value;
-	PolyDatum	cmp;			/* the comparison element. e.g. time */
+	PolyDatum value;
+	PolyDatum cmp; /* the comparison element. e.g. time */
 } InternalCmpAggStore;
 
 /* State used to cache data for serialize/deserialize operations */
 typedef struct InternalCmpAggStoreIOState
 {
 	PolyDatumIOState value;
-	PolyDatumIOState cmp;		/* the comparison element. e.g. time */
+	PolyDatumIOState cmp; /* the comparison element. e.g. time */
 } InternalCmpAggStoreIOState;
 
 typedef struct TypeInfoCache
 {
-	Oid			type_oid;
-	int16		typelen;
-	bool		typebyval;
+	Oid type_oid;
+	int16 typelen;
+	bool typebyval;
 } TypeInfoCache;
 
 inline static void
@@ -233,9 +224,9 @@ typeinfocache_polydatumcopy(TypeInfoCache *tic, PolyDatum input, PolyDatum *outp
 
 typedef struct CmpFuncCache
 {
-	Oid			cmp_type;
-	char		op;
-	FmgrInfo	proc;
+	Oid cmp_type;
+	char op;
+	FmgrInfo proc;
 } CmpFuncCache;
 
 inline static void
@@ -245,15 +236,15 @@ cmpfunccache_init(CmpFuncCache *cache)
 }
 
 inline static bool
-cmpfunccache_cmp(CmpFuncCache *cache, FunctionCallInfo fcinfo, char *opname, PolyDatum left, PolyDatum right)
+cmpfunccache_cmp(CmpFuncCache *cache, FunctionCallInfo fcinfo, char *opname, PolyDatum left,
+				 PolyDatum right)
 {
 	Assert(left.type_oid == right.type_oid);
 	Assert(opname[1] == '\0');
 
 	if (cache->cmp_type != left.type_oid || cache->op != opname[0])
 	{
-		Oid			cmp_op,
-					cmp_regproc;
+		Oid cmp_op, cmp_regproc;
 
 		if (!OidIsValid(left.type_oid))
 			elog(ERROR, "could not determine the type of the comparison_element");
@@ -262,11 +253,14 @@ cmpfunccache_cmp(CmpFuncCache *cache, FunctionCallInfo fcinfo, char *opname, Pol
 			elog(ERROR, "could not find a %s operator for type %d", opname, left.type_oid);
 		cmp_regproc = get_opcode(cmp_op);
 		if (!OidIsValid(cmp_regproc))
-			elog(ERROR, "could not find the procedure for the %s operator for type %d", opname, left.type_oid);
-		fmgr_info_cxt(cmp_regproc, &cache->proc,
-					  fcinfo->flinfo->fn_mcxt);
+			elog(ERROR,
+				 "could not find the procedure for the %s operator for type %d",
+				 opname,
+				 left.type_oid);
+		fmgr_info_cxt(cmp_regproc, &cache->proc, fcinfo->flinfo->fn_mcxt);
 	}
-	return DatumGetBool(FunctionCall2Coll(&cache->proc, fcinfo->fncollation, left.datum, right.datum));
+	return DatumGetBool(
+		FunctionCall2Coll(&cache->proc, fcinfo->fncollation, left.datum, right.datum));
 }
 
 typedef struct TransCache
@@ -283,8 +277,7 @@ transcache_get(FunctionCallInfo fcinfo)
 
 	if (my_extra == NULL)
 	{
-		fcinfo->flinfo->fn_extra =
-			MemoryContextAlloc(fcinfo->flinfo->fn_mcxt, sizeof(TransCache));
+		fcinfo->flinfo->fn_extra = MemoryContextAlloc(fcinfo->flinfo->fn_mcxt, sizeof(TransCache));
 		my_extra = (TransCache *) fcinfo->flinfo->fn_extra;
 		typeinfocache_init(&my_extra->value_type_cache);
 		typeinfocache_init(&my_extra->cmp_type_cache);
@@ -297,7 +290,8 @@ transcache_get(FunctionCallInfo fcinfo)
  * bookend_sfunc - internal function called by ts_last_sfunc and ts_first_sfunc;
  */
 static inline Datum
-bookend_sfunc(MemoryContext aggcontext, InternalCmpAggStore *state, PolyDatum value, PolyDatum cmp, char *opname, FunctionCallInfo fcinfo)
+bookend_sfunc(MemoryContext aggcontext, InternalCmpAggStore *state, PolyDatum value, PolyDatum cmp,
+			  char *opname, FunctionCallInfo fcinfo)
 {
 	MemoryContext old_context;
 	TransCache *cache = transcache_get(fcinfo);
@@ -313,7 +307,8 @@ bookend_sfunc(MemoryContext aggcontext, InternalCmpAggStore *state, PolyDatum va
 	else
 	{
 		/* only do comparison if cmp is not NULL */
-		if (!cmp.is_null && cmpfunccache_cmp(&cache->cmp_func_cache, fcinfo, opname, cmp, state->cmp))
+		if (!cmp.is_null &&
+			cmpfunccache_cmp(&cache->cmp_func_cache, fcinfo, opname, cmp, state->cmp))
 		{
 			typeinfocache_polydatumcopy(&cache->value_type_cache, value, &state->value);
 			typeinfocache_polydatumcopy(&cache->cmp_type_cache, cmp, &state->cmp);
@@ -328,7 +323,8 @@ bookend_sfunc(MemoryContext aggcontext, InternalCmpAggStore *state, PolyDatum va
  * fmgr args are: (internal internal_state, internal2 internal_state)
  */
 static inline Datum
-bookend_combinefunc(MemoryContext aggcontext, InternalCmpAggStore *state1, InternalCmpAggStore *state2, char *opname, FunctionCallInfo fcinfo)
+bookend_combinefunc(MemoryContext aggcontext, InternalCmpAggStore *state1,
+					InternalCmpAggStore *state2, char *opname, FunctionCallInfo fcinfo)
 {
 	MemoryContext old_context;
 	TransCache *cache;
@@ -346,7 +342,8 @@ bookend_combinefunc(MemoryContext aggcontext, InternalCmpAggStore *state1, Inter
 	{
 		old_context = MemoryContextSwitchTo(aggcontext);
 
-		state1 = (InternalCmpAggStore *) MemoryContextAlloc(aggcontext, sizeof(InternalCmpAggStore));
+		state1 =
+			(InternalCmpAggStore *) MemoryContextAlloc(aggcontext, sizeof(InternalCmpAggStore));
 		typeinfocache_polydatumcopy(&cache->value_type_cache, state2->value, &state1->value);
 		typeinfocache_polydatumcopy(&cache->cmp_type_cache, state2->cmp, &state1->cmp);
 
@@ -380,9 +377,10 @@ bookend_combinefunc(MemoryContext aggcontext, InternalCmpAggStore *state1, Inter
 Datum
 ts_first_sfunc(PG_FUNCTION_ARGS)
 {
-	InternalCmpAggStore *store = PG_ARGISNULL(0) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(0);
-	PolyDatum	value = polydatum_from_arg(1, fcinfo);
-	PolyDatum	cmp = polydatum_from_arg(2, fcinfo);
+	InternalCmpAggStore *store =
+		PG_ARGISNULL(0) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(0);
+	PolyDatum value = polydatum_from_arg(1, fcinfo);
+	PolyDatum cmp = polydatum_from_arg(2, fcinfo);
 	MemoryContext aggcontext;
 
 	if (!AggCheckCallContext(fcinfo, &aggcontext))
@@ -398,9 +396,10 @@ ts_first_sfunc(PG_FUNCTION_ARGS)
 Datum
 ts_last_sfunc(PG_FUNCTION_ARGS)
 {
-	InternalCmpAggStore *store = PG_ARGISNULL(0) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(0);
-	PolyDatum	value = polydatum_from_arg(1, fcinfo);
-	PolyDatum	cmp = polydatum_from_arg(2, fcinfo);
+	InternalCmpAggStore *store =
+		PG_ARGISNULL(0) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(0);
+	PolyDatum value = polydatum_from_arg(1, fcinfo);
+	PolyDatum cmp = polydatum_from_arg(2, fcinfo);
 	MemoryContext aggcontext;
 
 	if (!AggCheckCallContext(fcinfo, &aggcontext))
@@ -417,8 +416,10 @@ Datum
 ts_first_combinefunc(PG_FUNCTION_ARGS)
 {
 	MemoryContext aggcontext;
-	InternalCmpAggStore *state1 = PG_ARGISNULL(0) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(0);
-	InternalCmpAggStore *state2 = PG_ARGISNULL(1) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(1);
+	InternalCmpAggStore *state1 =
+		PG_ARGISNULL(0) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(0);
+	InternalCmpAggStore *state2 =
+		PG_ARGISNULL(1) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(1);
 
 	if (!AggCheckCallContext(fcinfo, &aggcontext))
 	{
@@ -433,8 +434,10 @@ Datum
 ts_last_combinefunc(PG_FUNCTION_ARGS)
 {
 	MemoryContext aggcontext;
-	InternalCmpAggStore *state1 = PG_ARGISNULL(0) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(0);
-	InternalCmpAggStore *state2 = PG_ARGISNULL(1) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(1);
+	InternalCmpAggStore *state1 =
+		PG_ARGISNULL(0) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(0);
+	InternalCmpAggStore *state2 =
+		PG_ARGISNULL(1) ? NULL : (InternalCmpAggStore *) PG_GETARG_POINTER(1);
 
 	if (!AggCheckCallContext(fcinfo, &aggcontext))
 	{
@@ -443,7 +446,6 @@ ts_last_combinefunc(PG_FUNCTION_ARGS)
 	}
 	return bookend_combinefunc(aggcontext, state1, state2, ">", fcinfo);
 }
-
 
 /* ts_bookend_serializefunc(internal) => bytea */
 Datum
@@ -473,7 +475,7 @@ ts_bookend_serializefunc(PG_FUNCTION_ARGS)
 Datum
 ts_bookend_deserializefunc(PG_FUNCTION_ARGS)
 {
-	bytea	   *sstate;
+	bytea *sstate;
 	StringInfoData buf;
 	InternalCmpAggStore *result;
 	InternalCmpAggStoreIOState *my_extra;
@@ -504,7 +506,6 @@ ts_bookend_deserializefunc(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(result);
 }
 
-
 /* ts_bookend_finalfunc(internal, anyelement, "any") => anyelement */
 Datum
 ts_bookend_finalfunc(PG_FUNCTION_ARGS)
@@ -516,7 +517,6 @@ ts_bookend_finalfunc(PG_FUNCTION_ARGS)
 		/* cannot be called directly because of internal-type argument */
 		elog(ERROR, "ts_bookend_finalfunc called in non-aggregate context");
 	}
-
 
 	if (PG_ARGISNULL(0))
 		PG_RETURN_NULL();

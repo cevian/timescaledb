@@ -45,7 +45,7 @@ current_license_can_downgrade_to_apache(void)
 		return true;
 
 	return (ts_guc_license_key == NULL || TS_CURRENT_LICENSE_IS_APACHE_ONLY()) &&
-		tsl_handle == NULL;
+		   tsl_handle == NULL;
 }
 
 /*
@@ -82,7 +82,7 @@ current_license_can_downgrade_to_apache(void)
 void
 ts_license_enable_module_loading(void)
 {
-	int			result;
+	int result;
 
 	can_load = true;
 	/* re-set the license key to actually load the submodule if needed */
@@ -91,7 +91,9 @@ ts_license_enable_module_loading(void)
 							   PGC_SUSET,
 							   load_source,
 							   GUC_ACTION_SET,
-							   true, 0, false);
+							   true,
+							   0,
+							   false);
 
 	if (result <= 0)
 		elog(ERROR, "invalid value for timescaledb.license_key");
@@ -104,7 +106,7 @@ ts_license_enable_module_loading(void)
 bool
 ts_license_update_check(char **newval, void **extra, GucSource source)
 {
-	Datum		module_can_start;
+	Datum module_can_start;
 
 	if (*newval == NULL)
 		return false;
@@ -135,7 +137,9 @@ ts_license_update_check(char **newval, void **extra, GucSource source)
 	if (!load_tsl())
 	{
 		GUC_check_errdetail("Could not find additional timescaledb module");
-		GUC_check_errhint("check that %s-%s is available", TSL_LIBRARY_NAME, TIMESCALEDB_VERSION_MOD);
+		GUC_check_errhint("check that %s-%s is available",
+						  TSL_LIBRARY_NAME,
+						  TIMESCALEDB_VERSION_MOD);
 		return false;
 	}
 
@@ -151,11 +155,9 @@ ts_license_update_check(char **newval, void **extra, GucSource source)
 	extra = NULL;
 #endif
 
-	module_can_start = DirectFunctionCall2(
-										   tsl_validate_license_fn,
+	module_can_start = DirectFunctionCall2(tsl_validate_license_fn,
 										   CStringGetDatum(*newval),
-										   PointerGetDatum(extra)
-		);
+										   PointerGetDatum(extra));
 
 	return DatumGetBool(module_can_start);
 }
@@ -164,8 +166,8 @@ ts_license_update_check(char **newval, void **extra, GucSource source)
 static void *
 revalidate_license(const char *newval)
 {
-	void	   *extra = NULL;
-	void	  **extra_p = &extra;
+	void *extra = NULL;
+	void **extra_p = &extra;
 
 	Assert(extra == NULL);
 
@@ -174,9 +176,7 @@ revalidate_license(const char *newval)
 	 * re-call the validation function, if we reach this point the license
 	 * must be valid so the function cannot fail cannot fail.
 	 */
-	DirectFunctionCall2(tsl_validate_license_fn,
-						CStringGetDatum(newval),
-						PointerGetDatum(extra_p));
+	DirectFunctionCall2(tsl_validate_license_fn, CStringGetDatum(newval), PointerGetDatum(extra_p));
 	return extra;
 }
 #endif
@@ -234,7 +234,7 @@ static bool load_tsl(void);
 static bool
 load_tsl(void)
 {
-	char		soname[MAX_SO_NAME_LEN] = {0};
+	char soname[MAX_SO_NAME_LEN] = { 0 };
 
 	if (tsl_handle != NULL)
 	{
@@ -251,10 +251,10 @@ load_tsl(void)
 	snprintf(soname, MAX_SO_NAME_LEN, TS_LIBDIR "%s-%s", TSL_LIBRARY_NAME, TIMESCALEDB_VERSION_MOD);
 
 	tsl_startup_fn = load_external_function(
-											 /* filename= */ soname,
-											 /* funcname= */ "ts_module_init",
-											 /* signalNotFound= */ false,
-											 /* filehandle= */ &tsl_handle);
+		/* filename= */ soname,
+		/* funcname= */ "ts_module_init",
+		/* signalNotFound= */ false,
+		/* filehandle= */ &tsl_handle);
 
 	if (tsl_handle == NULL || tsl_startup_fn == NULL)
 		goto loading_failed;
@@ -300,7 +300,6 @@ ts_enterprise_enabled(PG_FUNCTION_ARGS)
 
 	PG_RETURN_BOOL(ts_cm_functions->enterprise_enabled_internal());
 }
-
 
 PGDLLEXPORT Datum
 ts_current_license_key(PG_FUNCTION_ARGS)

@@ -13,7 +13,7 @@
  * TODO: right now jobs are not prioritized when slots available. Should prioritize in
  * asc next_start order.
  *
-*/
+ */
 #include <postgres.h>
 
 #include <miscadmin.h>
@@ -89,19 +89,19 @@ typedef enum JobState
 
 typedef struct ScheduledBgwJob
 {
-	BgwJob		job;
+	BgwJob job;
 	TimestampTz next_start;
 	TimestampTz timeout_at;
-	JobState	state;
+	JobState state;
 	BackgroundWorkerHandle *handle;
 
-	bool		reserved_worker;
+	bool reserved_worker;
 
 	/*
 	 * We say "may" here since under normal circumstances the job itself will
 	 * perform the mark_end
 	 */
-	bool		may_need_mark_end;
+	bool may_need_mark_end;
 } ScheduledBgwJob;
 
 static void on_failure_to_start_job(ScheduledBgwJob *sjob);
@@ -110,7 +110,7 @@ static void on_failure_to_start_job(ScheduledBgwJob *sjob);
 static void
 assert_that_worker_has_stopped(ScheduledBgwJob *sjob)
 {
-	pid_t		pid;
+	pid_t pid;
 	BgwHandleStatus status;
 
 	Assert(sjob->reserved_worker);
@@ -187,14 +187,14 @@ worker_state_cleanup(ScheduledBgwJob *sjob)
 }
 
 /* Set the state of the job.
-* This function is responsible for setting all of the variables in ScheduledBgwJob
-* except for the job itself.
-*/
+ * This function is responsible for setting all of the variables in ScheduledBgwJob
+ * except for the job itself.
+ */
 static void
 scheduled_bgw_job_transition_state_to(ScheduledBgwJob *sjob, JobState new_state)
 {
 #if USE_ASSERT_CHECKING
-	JobState	prev_state = sjob->state;
+	JobState prev_state = sjob->state;
 #endif
 
 	BgwJobStat *job_stat;
@@ -234,7 +234,8 @@ scheduled_bgw_job_transition_state_to(ScheduledBgwJob *sjob, JobState new_state)
 			 */
 			mark_job_as_started(sjob);
 			if (ts_bgw_job_has_timeout(&sjob->job))
-				sjob->timeout_at = ts_bgw_job_timeout_at(&sjob->job, ts_timer_get_current_timestamp());
+				sjob->timeout_at =
+					ts_bgw_job_timeout_at(&sjob->job, ts_timer_get_current_timestamp());
 			else
 				sjob->timeout_at = DT_NOEND;
 			CommitTransactionCommand();
@@ -242,17 +243,26 @@ scheduled_bgw_job_transition_state_to(ScheduledBgwJob *sjob, JobState new_state)
 			sjob->reserved_worker = ts_bgw_worker_reserve();
 			if (!sjob->reserved_worker)
 			{
-				elog(WARNING, "failed to launch job %d \"%s\": out of background workers", sjob->job.fd.id, NameStr(sjob->job.fd.application_name));
+				elog(WARNING,
+					 "failed to launch job %d \"%s\": out of background workers",
+					 sjob->job.fd.id,
+					 NameStr(sjob->job.fd.application_name));
 				on_failure_to_start_job(sjob);
 				return;
 			}
 
-			elog(DEBUG1, "launching job %d \"%s\"", sjob->job.fd.id, NameStr(sjob->job.fd.application_name));
+			elog(DEBUG1,
+				 "launching job %d \"%s\"",
+				 sjob->job.fd.id,
+				 NameStr(sjob->job.fd.application_name));
 
 			sjob->handle = ts_bgw_job_start(&sjob->job);
 			if (sjob->handle == NULL)
 			{
-				elog(WARNING, "failed to launch job %d \"%s\": failed to start a background worker", sjob->job.fd.id, NameStr(sjob->job.fd.application_name));
+				elog(WARNING,
+					 "failed to launch job %d \"%s\": failed to start a background worker",
+					 sjob->job.fd.id,
+					 NameStr(sjob->job.fd.application_name));
 				on_failure_to_start_job(sjob);
 				return;
 			}
@@ -292,15 +302,16 @@ bgw_scheduler_on_postmaster_death(void)
 }
 
 /*
-* This function starts a job.
-* To correctly count crashes we need to mark the start of a job in a separate
-* txn before we kick off the actual job. Thus this function cannot be run
-* from within a transaction.
-*/
+ * This function starts a job.
+ * To correctly count crashes we need to mark the start of a job in a separate
+ * txn before we kick off the actual job. Thus this function cannot be run
+ * from within a transaction.
+ */
 static void
-scheduled_ts_bgw_job_start(ScheduledBgwJob *sjob, register_background_worker_callback_type bgw_register)
+scheduled_ts_bgw_job_start(ScheduledBgwJob *sjob,
+						   register_background_worker_callback_type bgw_register)
 {
-	pid_t		pid;
+	pid_t pid;
 	BgwHandleStatus status;
 
 	scheduled_bgw_job_transition_state_to(sjob, JOB_STATE_STARTED);
@@ -354,9 +365,9 @@ terminate_and_cleanup_job(ScheduledBgwJob *sjob)
 List *
 ts_update_scheduled_jobs_list(List *cur_jobs_list, MemoryContext mctx)
 {
-	List	   *new_jobs = ts_bgw_job_get_all(sizeof(ScheduledBgwJob), mctx);
-	ListCell   *new_ptr = list_head(new_jobs);
-	ListCell   *cur_ptr = list_head(cur_jobs_list);
+	List *new_jobs = ts_bgw_job_get_all(sizeof(ScheduledBgwJob), mctx);
+	ListCell *new_ptr = list_head(new_jobs);
+	ListCell *cur_ptr = list_head(cur_jobs_list);
 
 	while (cur_ptr != NULL && new_ptr != NULL)
 	{
@@ -398,18 +409,18 @@ ts_update_scheduled_jobs_list(List *cur_jobs_list, MemoryContext mctx)
 	/* If there's more stuff in cur_list, clean it all up */
 	if (cur_ptr != NULL)
 	{
-		ListCell   *ptr;
+		ListCell *ptr;
 
-		for_each_cell(ptr, cur_ptr)
+		for_each_cell (ptr, cur_ptr)
 			terminate_and_cleanup_job(lfirst(ptr));
 	}
 
 	if (new_ptr != NULL)
 	{
 		/* Then there are more new jobs. Initialize all of them. */
-		ListCell   *ptr;
+		ListCell *ptr;
 
-		for_each_cell(ptr, new_ptr)
+		for_each_cell (ptr, new_ptr)
 			scheduled_bgw_job_transition_state_to(lfirst(ptr), JOB_STATE_SCHEDULED);
 	}
 
@@ -443,13 +454,14 @@ ts_populate_scheduled_job_tuple(ScheduledBgwJob *sjob, Datum *values)
 static void
 start_scheduled_jobs(register_background_worker_callback_type bgw_register)
 {
-	ListCell   *lc;
+	ListCell *lc;
 
-	foreach(lc, scheduled_jobs)
+	foreach (lc, scheduled_jobs)
 	{
 		ScheduledBgwJob *sjob = lfirst(lc);
 
-		if (sjob->state == JOB_STATE_SCHEDULED && sjob->next_start <= ts_timer_get_current_timestamp())
+		if (sjob->state == JOB_STATE_SCHEDULED &&
+			sjob->next_start <= ts_timer_get_current_timestamp())
 			scheduled_ts_bgw_job_start(sjob, bgw_register);
 	}
 }
@@ -458,10 +470,10 @@ start_scheduled_jobs(register_background_worker_callback_type bgw_register)
 static TimestampTz
 earliest_time_to_start_next_job()
 {
-	ListCell   *lc;
+	ListCell *lc;
 	TimestampTz earliest = DT_NOEND;
 
-	foreach(lc, scheduled_jobs)
+	foreach (lc, scheduled_jobs)
 	{
 		ScheduledBgwJob *sjob = lfirst(lc);
 
@@ -475,10 +487,10 @@ earliest_time_to_start_next_job()
 static TimestampTz
 earliest_job_timeout()
 {
-	ListCell   *lc;
+	ListCell *lc;
 	TimestampTz earliest = DT_NOEND;
 
-	foreach(lc, scheduled_jobs)
+	foreach (lc, scheduled_jobs)
 	{
 		ScheduledBgwJob *sjob = lfirst(lc);
 
@@ -497,9 +509,9 @@ earliest_job_timeout()
 static void
 terminate_all_jobs_and_release_workers()
 {
-	ListCell   *lc;
+	ListCell *lc;
 
-	foreach(lc, scheduled_jobs)
+	foreach (lc, scheduled_jobs)
 	{
 		ScheduledBgwJob *sjob = lfirst(lc);
 
@@ -522,9 +534,9 @@ terminate_all_jobs_and_release_workers()
 static void
 wait_for_all_jobs_to_shutdown()
 {
-	ListCell   *lc;
+	ListCell *lc;
 
-	foreach(lc, scheduled_jobs)
+	foreach (lc, scheduled_jobs)
 	{
 		ScheduledBgwJob *sjob = lfirst(lc);
 
@@ -536,12 +548,12 @@ wait_for_all_jobs_to_shutdown()
 static void
 check_for_stopped_and_timed_out_jobs()
 {
-	ListCell   *lc;
+	ListCell *lc;
 
-	foreach(lc, scheduled_jobs)
+	foreach (lc, scheduled_jobs)
 	{
 		BgwHandleStatus status;
-		pid_t		pid;
+		pid_t pid;
 		ScheduledBgwJob *sjob = lfirst(lc);
 		TimestampTz now = ts_timer_get_current_timestamp();
 
@@ -562,7 +574,9 @@ check_for_stopped_and_timed_out_jobs()
 				/* still running */
 				if (sjob->state == JOB_STATE_STARTED && now >= sjob->timeout_at)
 				{
-					elog(WARNING, "terminating background worker \"%s\" due to timeout", NameStr(sjob->job.fd.application_name));
+					elog(WARNING,
+						 "terminating background worker \"%s\" due to timeout",
+						 NameStr(sjob->job.fd.application_name));
 					scheduled_bgw_job_transition_state_to(sjob, JOB_STATE_TERMINATING);
 					Assert(sjob->state != JOB_STATE_STARTED);
 				}
@@ -577,7 +591,6 @@ check_for_stopped_and_timed_out_jobs()
 	}
 }
 
-
 /* This is the guts of the scheduler which runs the main loop.
  * The parameter ttl_ms gives a maximum time to run the loop (after which
  * the loop will exit). This functionality is used to ease testing.
@@ -585,7 +598,8 @@ check_for_stopped_and_timed_out_jobs()
  * run forever (or until the process gets a signal).
  */
 void
-ts_bgw_scheduler_process(int32 run_for_interval_ms, register_background_worker_callback_type bgw_register)
+ts_bgw_scheduler_process(int32 run_for_interval_ms,
+						 register_background_worker_callback_type bgw_register)
 {
 	TimestampTz start = ts_timer_get_current_timestamp();
 	TimestampTz quit_time = DT_NOEND;
@@ -649,8 +663,7 @@ ts_bgw_scheduler_setup_callbacks()
 	before_shmem_exit(bgw_scheduler_before_shmem_exit_callback, PointerGetDatum(NULL));
 }
 
-static void
-handle_sigterm(SIGNAL_ARGS)
+static void handle_sigterm(SIGNAL_ARGS)
 {
 	/*
 	 * do not use a level >= ERROR because we don't want to exit here but

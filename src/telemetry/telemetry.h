@@ -21,7 +21,7 @@
 #define TELEMETRY_HOST "telemetry.timescale.com"
 #define TELEMETRY_PATH "/v1/metrics"
 
-#define	MAX_VERSION_STR_LEN	128
+#define MAX_VERSION_STR_LEN 128
 
 typedef struct VersionResult
 {
@@ -41,4 +41,4 @@ extern bool ts_validate_server_version(const char *json, VersionResult *result);
 extern bool ts_telemetry_main(const char *host, const char *path, const char *service);
 extern bool ts_telemetry_main_wrapper(void);
 
-#endif							/* TIMESCALEDB_TELEMETRY_TELEMETRY_H */
+#endif /* TIMESCALEDB_TELEMETRY_TELEMETRY_H */

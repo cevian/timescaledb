@@ -12,4 +12,4 @@
 
 extern void ts_process_utility_set_expect_chunk_modification(bool expect);
 
-#endif							/* TIMESCALEDB_PROCESS_UTILITY_H */
+#endif /* TIMESCALEDB_PROCESS_UTILITY_H */

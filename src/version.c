@@ -27,14 +27,12 @@ TS_FUNCTION_INFO_V1(ts_get_git_commit);
 Datum
 ts_get_git_commit(PG_FUNCTION_ARGS)
 {
-	size_t		var_size = VARHDRSZ + strlen(git_commit);
-	text	   *version_text = (text *) palloc(var_size);
+	size_t var_size = VARHDRSZ + strlen(git_commit);
+	text *version_text = (text *) palloc(var_size);
 
 	SET_VARSIZE(version_text, var_size);
 
-	memcpy((void *) VARDATA(version_text),
-		   (void *) git_commit,
-		   var_size - VARHDRSZ);
+	memcpy((void *) VARDATA(version_text), (void *) git_commit, var_size - VARHDRSZ);
 
 	PG_RETURN_TEXT_P(version_text);
 }
@@ -46,10 +44,10 @@ ts_get_git_commit(PG_FUNCTION_ARGS)
 bool
 ts_version_get_os_info(VersionOSInfo *info)
 {
-	DWORD		bufsize;
-	void	   *buffer;
+	DWORD bufsize;
+	void *buffer;
 	VS_FIXEDFILEINFO *vinfo = NULL;
-	UINT		vinfo_len = 0;
+	UINT vinfo_len = 0;
 
 	memset(info, 0, sizeof(VersionOSInfo));
 
@@ -105,17 +103,17 @@ ts_version_get_os_info(VersionOSInfo *info)
 	memset(info, 0, sizeof(VersionOSInfo));
 	return false;
 }
-#endif							/* WIN32 */
+#endif /* WIN32 */
 
 TS_FUNCTION_INFO_V1(ts_get_os_info);
 
 Datum
 ts_get_os_info(PG_FUNCTION_ARGS)
 {
-	TupleDesc	tupdesc;
-	Datum		values[3];
-	bool		nulls[3] = {false};
-	HeapTuple	tuple;
+	TupleDesc tupdesc;
+	Datum values[3];
+	bool nulls[3] = { false };
+	HeapTuple tuple;
 	VersionOSInfo info;
 
 	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)

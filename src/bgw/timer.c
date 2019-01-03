@@ -23,7 +23,7 @@
 #include "compat.h"
 #include "config.h"
 
-#define MAX_TIMEOUT (5*1000L)
+#define MAX_TIMEOUT (5 * 1000L)
 #define MILLISECS_PER_SEC 1000L
 #define USECS_PER_MILLISEC 1000L
 
@@ -44,14 +44,13 @@ on_postmaster_death(void)
 static long
 get_timeout_millisec(TimestampTz by_time)
 {
-	long		timeout_sec = 0;
-	int			timeout_usec = 0;
+	long timeout_sec = 0;
+	int timeout_usec = 0;
 
 	if (TIMESTAMP_IS_NOBEGIN(by_time))
 		return 0;
 
 	TimestampDifference(GetCurrentTimestamp(), by_time, &timeout_sec, &timeout_usec);
-
 
 	if (timeout_sec <= 0 && timeout_usec <= 0)
 		return 0;
@@ -62,9 +61,9 @@ get_timeout_millisec(TimestampTz by_time)
 static bool
 wait_using_wait_latch(TimestampTz until)
 {
-	int			wl_rc;
+	int wl_rc;
 
-	long		timeout = get_timeout_millisec(until);
+	long timeout = get_timeout_millisec(until);
 
 	if (timeout > MAX_TIMEOUT)
 		timeout = MAX_TIMEOUT;
@@ -81,12 +80,10 @@ wait_using_wait_latch(TimestampTz until)
 	return true;
 }
 
-
 static const Timer standard_timer = {
 	.get_current_timestamp = GetCurrentTimestamp,
 	.wait = wait_using_wait_latch,
 };
-
 
 static const Timer *current_timer_implementation = &standard_timer;
 
