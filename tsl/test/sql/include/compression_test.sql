@@ -43,6 +43,9 @@ WHERE (original.*) IS DISTINCT FROM (decompressed.*);
 --Test IO
 SELECT c "COMPRESSED_AS_TEXT" FROM compressed \gset
 
+--output the md5 hash so we can verify that the text output is the same across architectures
+SELECT MD5(:'COMPRESSED_AS_TEXT'::text);
+
 WITH original AS
 (
   SELECT row_number() OVER() row_number, * FROM (:QUERY) as q
