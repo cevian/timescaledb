@@ -810,7 +810,7 @@ process_drop_chunk(ProcessUtilityArgs *args, DropStmt *stmt)
 					ts_chunk_get_by_id(chunk->fd.compressed_chunk_id, 0, false);
 				/* The chunk may have been delete by a CASCADE */
 				if (compressed_chunk != NULL)
-					ts_chunk_drop(compressed_chunk, stmt->behavior, DEBUG1);
+					ts_chunk_drop(compressed_chunk, stmt->behavior, DEBUG1, false);
 			}
 		}
 	}
@@ -3178,7 +3178,7 @@ process_drop_table(EventTriggerDropObject *obj)
 	table = (EventTriggerDropTable *) obj;
 
 	ts_hypertable_delete_by_name(table->schema, table->table_name);
-	ts_chunk_delete_by_name(table->schema, table->table_name, DROP_RESTRICT);
+	ts_chunk_delete_by_name(table->schema, table->table_name, DROP_RESTRICT, false);
 }
 
 static void
