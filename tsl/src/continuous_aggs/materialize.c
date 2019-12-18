@@ -94,53 +94,29 @@ static void materialization_invalidation_log_delete_or_cut(int32 cagg_id,
 														   InternalTimeRange invalidation_range,
 														   int64 completed_threshold);
 /* must be called without a transaction started if !options->transactional */
-bool
-continuous_agg_materialize(int32 materialization_id, ContinuousAggMatOptions *options)
+typedef struct MaterializationState
 {
+	FormData_continuous_agg cagg_data;
+	Oid time_column_type;
+
+	/* session locks */
+	LockRelId raw_lock_relid;
+	LockRelId materialization_lock_relid;
+	LockRelId partial_view_lock_relid;
+} MaterializationState;
+
+static void
+lock_materialization_and_init_state(int32 materialization_id, MaterializationState *state)
+{
+	Form_continuous_agg cagg;
 	Hypertable *raw_hypertable;
 	Oid raw_table_oid;
 	Relation raw_table_relation;
 	Hypertable *materialization_table;
 	Oid materialization_table_oid;
 	Relation materialization_table_relation;
-	Relation materialization_invalidation_log_table_relation;
 	Oid partial_view_oid;
 	Relation partial_view_relation;
-	LockRelId raw_lock_relid;
-	LockRelId materialization_lock_relid;
-	LockRelId partial_view_lock_relid;
-	Form_continuous_agg cagg;
-	FormData_continuous_agg cagg_data;
-	int64 materialization_invalidation_threshold;
-	bool materializing_new_range = false;
-	bool truncated_materialization = false;
-	SchemaAndName partial_view;
-	List *caggs = NIL;
-	Catalog *catalog;
-	InternalTimeRange invalidation_range;
-	Oid time_column_type;
-	List *invalidations = NIL;
-	int64 completed_threshold;
-
-	/* validate the options */
-	if (options->transactional)
-	{
-		/* if not using multiple txns, should not change the invalidation
-		 * threshold and thus cannot only do invalidations */
-		Assert(options->process_only_invalidation);
-	}
-
-	/*
-	 * Transaction 1: a) copy the invalidation logs and then
-	 *                b) discover the new range in the raw table we will materialize
-	 *                and update the invalidation threshold to it, if needed
-	 */
-	if (!options->transactional)
-	{
-		StartTransactionCommand();
-		/* we need a snapshot for the SPI commands in get_materialization_end_point_for_table */
-		PushActiveSnapshot(GetTransactionSnapshot());
-	}
 
 	cagg = get_continuous_agg(materialization_id);
 	if (cagg == NULL)
@@ -149,7 +125,7 @@ continuous_agg_materialize(int32 materialization_id, ContinuousAggMatOptions *op
 	/* copy the continuous aggregate data into a local variable, we want to access it after
 	 * we close this transaction
 	 */
-	cagg_data = *cagg;
+	state->cagg_data = *cagg;
 
 	/* We're going to close this transaction, so SessionLock the objects we are using for this
 	 * materialization to ensure they're not alter in a way which would invalidate our work.
@@ -163,19 +139,19 @@ continuous_agg_materialize(int32 materialization_id, ContinuousAggMatOptions *op
 	 *    materialization table
 	 *    partial view
 	 */
-	raw_hypertable = ts_hypertable_get_by_id(cagg_data.raw_hypertable_id);
+	raw_hypertable = ts_hypertable_get_by_id(state->cagg_data.raw_hypertable_id);
 	if (raw_hypertable == NULL)
 		elog(ERROR, "hypertable dropped before materialization could start");
 
 	raw_table_oid = raw_hypertable->main_table_relid;
 	raw_table_relation = relation_open(raw_table_oid, AccessShareLock);
-	raw_lock_relid = raw_table_relation->rd_lockInfo.lockRelId;
-	time_column_type =
+	state->raw_lock_relid = raw_table_relation->rd_lockInfo.lockRelId;
+	state->time_column_type =
 		ts_dimension_get_partition_type(hyperspace_get_open_dimension(raw_hypertable->space, 0));
-	LockRelationIdForSession(&raw_lock_relid, AccessShareLock);
+	LockRelationIdForSession(&state->raw_lock_relid, AccessShareLock);
 	relation_close(raw_table_relation, NoLock);
 
-	materialization_table = ts_hypertable_get_by_id(cagg_data.mat_hypertable_id);
+	materialization_table = ts_hypertable_get_by_id(state->cagg_data.mat_hypertable_id);
 	if (materialization_table == NULL)
 		elog(ERROR, "materialization table dropped before materialization could start");
 
@@ -183,161 +159,268 @@ continuous_agg_materialize(int32 materialization_id, ContinuousAggMatOptions *op
 
 	materialization_table_relation =
 		relation_open(materialization_table_oid, ShareRowExclusiveLock);
-	materialization_lock_relid = materialization_table_relation->rd_lockInfo.lockRelId;
-	LockRelationIdForSession(&materialization_lock_relid, ShareRowExclusiveLock);
+	state->materialization_lock_relid = materialization_table_relation->rd_lockInfo.lockRelId;
+	LockRelationIdForSession(&state->materialization_lock_relid, ShareRowExclusiveLock);
 	relation_close(materialization_table_relation, NoLock);
 
 	partial_view_oid =
-		get_relname_relid(NameStr(cagg_data.partial_view_name),
-						  get_namespace_oid(NameStr(cagg_data.partial_view_schema), false));
+		get_relname_relid(NameStr(state->cagg_data.partial_view_name),
+						  get_namespace_oid(NameStr(state->cagg_data.partial_view_schema), false));
 	Assert(OidIsValid(partial_view_oid));
 	partial_view_relation = relation_open(partial_view_oid, ShareRowExclusiveLock);
-	partial_view_lock_relid = partial_view_relation->rd_lockInfo.lockRelId;
-	LockRelationIdForSession(&partial_view_lock_relid, ShareRowExclusiveLock);
+	state->partial_view_lock_relid = partial_view_relation->rd_lockInfo.lockRelId;
+	LockRelationIdForSession(&state->partial_view_lock_relid, ShareRowExclusiveLock);
 	relation_close(partial_view_relation, NoLock);
+}
 
-	catalog = ts_catalog_get();
-
+static void
+copy_invalidations_from_hypertable_to_cont_aggs(const MaterializationState *state)
+{
+	List *caggs = NIL;
+	List *invalidations = NIL;
+	Relation materialization_invalidation_log_table_relation;
 	/* copy over all the materializations from the raw hypertable to all the continuous aggs */
-	caggs = ts_continuous_aggs_find_by_raw_table_id(cagg_data.raw_hypertable_id);
-	drain_invalidation_log(cagg_data.raw_hypertable_id, &invalidations);
+	caggs = ts_continuous_aggs_find_by_raw_table_id(state->cagg_data.raw_hypertable_id);
+	drain_invalidation_log(state->cagg_data.raw_hypertable_id, &invalidations);
 	materialization_invalidation_log_table_relation =
-		heap_open(catalog_get_table_id(catalog, CONTINUOUS_AGGS_MATERIALIZATION_INVALIDATION_LOG),
+		heap_open(catalog_get_table_id(ts_catalog_get(),
+									   CONTINUOUS_AGGS_MATERIALIZATION_INVALIDATION_LOG),
 				  RowExclusiveLock);
 	insert_materialization_invalidation_logs(caggs,
 											 invalidations,
 											 materialization_invalidation_log_table_relation);
+
+	relation_close(materialization_invalidation_log_table_relation, NoLock);
+}
+
+static void
+delete_invalidation_and_materialize(MaterializationState *state, int64 completed_threshold,
+									InternalTimeRange invalidation_range,
+									int64 materialization_invalidation_threshold,
+									ContinuousAggMatOptions *options)
+{
+	SchemaAndName partial_view;
+	/* adjust the materialization invalidation log to delete or cut any entries that
+	 * will be processed in the invalidation range. This must occur in the same transaction
+	 * as the materialization so that it shares fate with the query to populate the invalidation
+	 * range */
+	materialization_invalidation_log_delete_or_cut(state->cagg_data.mat_hypertable_id,
+												   invalidation_range,
+												   completed_threshold);
+	/* if there's nothing to materialize, don't bother with the rest */
+	if (materialization_invalidation_threshold == completed_threshold &&
+		range_length(invalidation_range) == 0)
+	{
+		if (options->verbose)
+			elog(INFO,
+				 "materializing continuous aggregate %s.%s: no new range to materialize or "
+				 "invalidations found, exiting early",
+				 NameStr(state->cagg_data.user_view_schema),
+				 NameStr(state->cagg_data.user_view_name));
+		return;
+	}
+
+	partial_view = (SchemaAndName){
+		.schema = &state->cagg_data.partial_view_schema,
+		.name = &state->cagg_data.partial_view_name,
+	};
+	LockRelationOid(catalog_get_table_id(ts_catalog_get(), CONTINUOUS_AGGS_COMPLETED_THRESHOLD),
+					RowExclusiveLock);
+
+	continuous_agg_execute_materialization(state->cagg_data.bucket_width,
+										   state->cagg_data.raw_hypertable_id,
+										   state->cagg_data.mat_hypertable_id,
+										   partial_view,
+										   invalidation_range.start,
+										   invalidation_range.end,
+										   materialization_invalidation_threshold);
+}
+
+static void
+unlock_session_locks(MaterializationState *state)
+{
+	UnlockRelationIdForSession(&state->partial_view_lock_relid, ShareRowExclusiveLock);
+	UnlockRelationIdForSession(&state->materialization_lock_relid, ShareRowExclusiveLock);
+	UnlockRelationIdForSession(&state->raw_lock_relid, AccessShareLock);
+}
+
+static void
+print_materialization_range_info(const MaterializationState *state, int64 completed_threshold,
+								 InternalTimeRange invalidation_range,
+								 int64 materialization_invalidation_threshold)
+{
+	StringInfo msg = makeStringInfo();
+	appendStringInfo(msg,
+					 "materializing continuous aggregate %s.%s: ",
+					 NameStr(state->cagg_data.user_view_schema),
+					 NameStr(state->cagg_data.user_view_name));
+
+	if (range_length(invalidation_range) > 0)
+		appendStringInfo(msg, "processing invalidations, ");
+	else
+		appendStringInfo(msg, "nothing to invalidate, ");
+
+	if (materialization_invalidation_threshold != completed_threshold)
+		appendStringInfo(msg,
+						 "new range up to " INT64_FORMAT,
+						 materialization_invalidation_threshold);
+	else
+		appendStringInfo(msg, "no new range");
+	elog(INFO, "%s", msg->data);
+}
+
+static bool
+continuous_agg_materialize_using_multiple_transactions(int32 materialization_id,
+													   ContinuousAggMatOptions *options)
+{
+	int64 materialization_invalidation_threshold;
+	bool truncated_materialization = false;
+	InternalTimeRange invalidation_range;
+	int64 completed_threshold;
+	MaterializationState mstate;
+
+	/*
+	 * Transaction 1: a) copy the invalidation logs and then
+	 *                b) discover the new range in the raw table we will materialize
+	 *                and update the invalidation threshold to it, if needed
+	 */
+
+	StartTransactionCommand();
+	/* we need a snapshot for the SPI commands in get_materialization_end_point_for_table */
+	PushActiveSnapshot(GetTransactionSnapshot());
+
+	lock_materialization_and_init_state(materialization_id, &mstate);
+	copy_invalidations_from_hypertable_to_cont_aggs(&mstate);
 
 	completed_threshold = ts_continuous_agg_get_completed_threshold(materialization_id);
 
 	/* decide on the invalidation and new materialization ranges */
 	invalidation_range =
 		materialization_invalidation_log_get_range(materialization_id,
-												   time_column_type,
-												   cagg_data.bucket_width,
-												   cagg_data.max_interval_per_job,
+												   mstate.time_column_type,
+												   mstate.cagg_data.bucket_width,
+												   mstate.cagg_data.max_interval_per_job,
 												   completed_threshold,
 												   options->invalidate_prior_to_time);
 
-	if (range_length(invalidation_range) >= cagg_data.max_interval_per_job)
+	if (range_length(invalidation_range) >= mstate.cagg_data.max_interval_per_job)
 		truncated_materialization = true;
 
-	if (options->process_only_invalidation || truncated_materialization)
+	if (truncated_materialization)
 	{
-		materializing_new_range = false;
 		materialization_invalidation_threshold = completed_threshold;
 	}
 	else
 	{
+		bool materializing_new_range = false;
 		materialization_invalidation_threshold =
-			get_materialization_end_point_for_table(cagg_data.raw_hypertable_id,
+			get_materialization_end_point_for_table(mstate.cagg_data.raw_hypertable_id,
 													materialization_id,
-													cagg_data.refresh_lag,
-													cagg_data.bucket_width,
-													cagg_data.max_interval_per_job -
+													mstate.cagg_data.refresh_lag,
+													mstate.cagg_data.bucket_width,
+													mstate.cagg_data.max_interval_per_job -
 														range_length(invalidation_range),
 													completed_threshold,
 													&materializing_new_range,
 													&truncated_materialization,
 													options->verbose);
+		if (materializing_new_range)
+		{
+			LockRelationOid(catalog_get_table_id(ts_catalog_get(),
+												 CONTINUOUS_AGGS_INVALIDATION_THRESHOLD),
+							AccessExclusiveLock);
+			invalidation_threshold_set(mstate.cagg_data.raw_hypertable_id,
+									   materialization_invalidation_threshold);
+		}
 	}
 
 	if (options->verbose)
-	{
-		StringInfo msg = makeStringInfo();
-		appendStringInfo(msg,
-						 "materializing continuous aggregate %s.%s: ",
-						 NameStr(cagg_data.user_view_schema),
-						 NameStr(cagg_data.user_view_name));
+		print_materialization_range_info(&mstate,
+										 completed_threshold,
+										 invalidation_range,
+										 materialization_invalidation_threshold);
 
-		if (range_length(invalidation_range) > 0)
-			appendStringInfo(msg, "processing invalidations, ");
-		else
-			appendStringInfo(msg, "nothing to invalidate, ");
-
-		if (materializing_new_range)
-			appendStringInfo(msg,
-							 "new range up to " INT64_FORMAT,
-							 materialization_invalidation_threshold);
-		else
-			appendStringInfo(msg, "no new range");
-		elog(INFO, "%s", msg->data);
-	}
-
-	if (materializing_new_range)
-	{
-		LockRelationOid(catalog_get_table_id(catalog, CONTINUOUS_AGGS_INVALIDATION_THRESHOLD),
-						AccessExclusiveLock);
-		invalidation_threshold_set(cagg_data.raw_hypertable_id,
-								   materialization_invalidation_threshold);
-	}
-
-	relation_close(materialization_invalidation_log_table_relation, NoLock);
-
-	if (!options->transactional)
-	{
-		PopActiveSnapshot();
-		CommitTransactionCommand();
-	}
+	PopActiveSnapshot();
+	CommitTransactionCommand();
 
 	/*
 	 * Transaction 2:
 	 *                run the materialization, and update completed_threshold
 	 * read per-cagg log for materialization
 	 */
-	if (!options->transactional)
-	{
-		StartTransactionCommand();
-		/* we need a snapshot for the SPI commands within continuous_agg_execute_materialization */
-		PushActiveSnapshot(GetTransactionSnapshot());
-	}
+	StartTransactionCommand();
+	/* we need a snapshot for the SPI commands within continuous_agg_execute_materialization */
+	PushActiveSnapshot(GetTransactionSnapshot());
 
-	/* adjust the materialization invalidation log to delete or cut any entries that
-	 * will be processed in the invalidation range. This must occur in the second transaction
-	 * so that it shares fate with the query to populate the invalidation range */
-	materialization_invalidation_log_delete_or_cut(materialization_id,
-												   invalidation_range,
-												   completed_threshold);
-	/* if there's nothing to materialize, don't bother with the rest */
-	if (!materializing_new_range && range_length(invalidation_range) == 0)
-	{
-		if (options->verbose)
-			elog(INFO,
-				 "materializing continuous aggregate %s.%s: no new range to materialize or "
-				 "invalidations found, exiting early",
-				 NameStr(cagg_data.user_view_schema),
-				 NameStr(cagg_data.user_view_name));
-		goto finish;
-	}
+	delete_invalidation_and_materialize(&mstate,
+										completed_threshold,
+										invalidation_range,
+										materialization_invalidation_threshold,
+										options);
+	unlock_session_locks(&mstate);
 
-	partial_view = (SchemaAndName){
-		.schema = &cagg_data.partial_view_schema,
-		.name = &cagg_data.partial_view_name,
-	};
-	catalog = ts_catalog_get();
-	LockRelationOid(catalog_get_table_id(catalog, CONTINUOUS_AGGS_COMPLETED_THRESHOLD),
-					RowExclusiveLock);
-
-	continuous_agg_execute_materialization(cagg_data.bucket_width,
-										   cagg_data.raw_hypertable_id,
-										   cagg_data.mat_hypertable_id,
-										   partial_view,
-										   invalidation_range.start,
-										   invalidation_range.end,
-										   materialization_invalidation_threshold);
-
-finish:
-	UnlockRelationIdForSession(&partial_view_lock_relid, ShareRowExclusiveLock);
-	UnlockRelationIdForSession(&materialization_lock_relid, ShareRowExclusiveLock);
-	UnlockRelationIdForSession(&raw_lock_relid, AccessShareLock);
-
-	if (!options->transactional)
-	{
-		PopActiveSnapshot();
-		CommitTransactionCommand();
-	}
+	PopActiveSnapshot();
+	CommitTransactionCommand();
 
 	return !truncated_materialization;
+}
+
+static bool
+continuous_agg_materialize_invalidations_transactionally(int32 materialization_id,
+														 ContinuousAggMatOptions *options)
+{
+	bool truncated_materialization = false;
+	InternalTimeRange invalidation_range;
+	int64 completed_threshold;
+	MaterializationState mstate;
+
+	lock_materialization_and_init_state(materialization_id, &mstate);
+	copy_invalidations_from_hypertable_to_cont_aggs(&mstate);
+	completed_threshold = ts_continuous_agg_get_completed_threshold(materialization_id);
+
+	/* decide on the invalidation and new materialization ranges */
+	invalidation_range =
+		materialization_invalidation_log_get_range(materialization_id,
+												   mstate.time_column_type,
+												   mstate.cagg_data.bucket_width,
+												   mstate.cagg_data.max_interval_per_job,
+												   completed_threshold,
+												   options->invalidate_prior_to_time);
+
+	if (range_length(invalidation_range) >= mstate.cagg_data.max_interval_per_job)
+		truncated_materialization = true;
+
+	if (options->verbose)
+		print_materialization_range_info(&mstate,
+										 completed_threshold,
+										 invalidation_range,
+										 completed_threshold);
+
+	delete_invalidation_and_materialize(&mstate,
+										completed_threshold,
+										invalidation_range,
+										completed_threshold,
+										options);
+
+	unlock_session_locks(&mstate);
+	return !truncated_materialization;
+}
+
+bool
+continuous_agg_materialize(int32 materialization_id, ContinuousAggMatOptions *options)
+{
+	if (options->transactional)
+	{
+		/* if not using multiple txns, should not change the invalidation
+		 * threshold and thus cannot only do invalidations */
+		Assert(options->process_only_invalidation);
+		return continuous_agg_materialize_invalidations_transactionally(materialization_id,
+																		options);
+	}
+	else
+	{
+		return continuous_agg_materialize_using_multiple_transactions(materialization_id, options);
+	}
 }
 
 static ScanTupleResult
