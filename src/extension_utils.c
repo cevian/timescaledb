@@ -164,6 +164,7 @@ extension_current_state()
 	 * EXTENSION proxy_table_exists() will return false right away, while
 	 * extension_exists will return true until the end of the command
 	 */
+	 elog(WARNING, "running pte");
 	if (proxy_table_exists())
 	{
 		Assert(extension_exists());

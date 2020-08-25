@@ -18,4 +18,8 @@ extern char *ts_extension_schema_name(void);
 
 extern char *ts_extension_get_so_name(void);
 
+#ifdef TS_DEBUG
+void extension_test_set_unknown_state(void);
+#endif
+
 #endif /* TIMESCALEDB_EXTENSION_H */

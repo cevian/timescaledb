@@ -3,14 +3,18 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-APACHE for a copy of the license.
  */
+#include "catalog.h"
+#include <access/xact.h>
 #include <postgres.h>
 #include <fmgr.h>
 
 #include "export.h"
 
 #include "test_utils.h"
+#include <utils/syscache.h>
 
 TS_FUNCTION_INFO_V1(ts_test_adts);
+TS_FUNCTION_INFO_V1(ts_test_extension_cache);
 
 #define VEC_PREFIX int32
 #define VEC_ELEMENT_TYPE int32
@@ -138,5 +142,61 @@ ts_test_adts(PG_FUNCTION_ARGS)
 	i32_vec_test();
 	uint64_vec_test();
 	bit_array_test();
+	PG_RETURN_VOID();
+}
+
+
+Datum
+ts_test_extension_cache(PG_FUNCTION_ARGS)
+{
+	Oid table1 = catalog_get_table_id(ts_catalog_get(), HYPERTABLE);
+	Oid table2 = catalog_get_table_id(ts_catalog_get(), CHUNK);
+	elog(WARNING, "invalidating");
+	Oid tables[]= {
+  112,
+  113,
+  174,
+  175,
+  548,
+  549,
+  826,
+  827,
+  828,
+ 1136,
+ 1137,
+ 1213,
+ 1214,
+ 1232,
+ 1233,
+ 1247,
+ 1249,
+ 1255,
+ 1259,
+ 1260,
+ 1261,
+ 1262,
+ 1417,
+ 1418,
+ 2187,
+ 2224,
+ 2328,
+ 2336,
+ 2337,
+ 2396,
+ 2397,
+ 2579,
+ 2600,
+ 2601};
+	ResetCatalogCaches();
+	for (int i = 0; i< 34;i++)
+    	CacheInvalidateRelcacheByRelid(tables[i], CMD_INSERT);
+	extension_test_set_unknown_state();
+	elog(WARNING, "invalidating");
+//	CacheInvalidateRelcacheAll();
+	CommandCounterIncrement();
+	extension_test_set_unknown_state();
+//	ts_extension_is_loaded();
+	elog(WARNING, "accepting");
+	AcceptInvalidationMessages();
 	PG_RETURN_VOID();
 }

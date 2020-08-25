@@ -117,6 +117,7 @@ extension_set_state(enum ExtensionState newstate)
 	{
 		return false;
 	}
+	elog(WARNING, "set state %d %d", extstate, newstate);
 	switch (newstate)
 	{
 		case EXTENSION_STATE_TRANSITIONING:
@@ -137,6 +138,13 @@ extension_set_state(enum ExtensionState newstate)
 	return true;
 }
 
+#ifdef TS_DEBUG
+void extension_test_set_unknown_state()
+{
+	extension_set_state(EXTENSION_STATE_UNKNOWN);
+}
+#endif
+
 /* Updates the state based on the current state, returning whether there had been a change. */
 static void
 extension_update_state()
@@ -146,8 +154,8 @@ extension_update_state()
 	 * is no point processing recursive calls as the outer call will always set the correct state.
 	 * This also prevents deep recursion during `AcceptInvalidationMessages`.
 	 */
-	if (in_recursion)
-		return;
+//	if (in_recursion)
+//		return;
 
 	in_recursion = true;
 	extension_set_state(extension_current_state());
@@ -254,6 +262,7 @@ ts_extension_is_loaded(void)
 	if (ts_guc_restoring)
 		return false;
 
+	elog(WARNING, "is loaded %d", extstate);
 	if (EXTENSION_STATE_UNKNOWN == extstate || EXTENSION_STATE_TRANSITIONING == extstate)
 	{
 		/* status may have updated without a relcache invalidate event */

@@ -65,11 +65,14 @@ cache_invalidate_callback(Datum arg, Oid relid)
 {
 	Catalog *catalog;
 
+	elog(WARNING, "callback");
+
 	if (ts_extension_invalidate(relid))
 	{
 		cache_invalidate_all();
 		return;
 	}
+	elog(WARNING, "callback after invalidate call");
 
 	if (!ts_extension_is_loaded())
 		return;
@@ -84,6 +87,7 @@ cache_invalidate_callback(Datum arg, Oid relid)
 
 	if (relid == InvalidOid)
 		cache_invalidate_all();
+	elog(WARNING, "callback exit");
 }
 
 TS_FUNCTION_INFO_V1(ts_timescaledb_invalidate_cache);
